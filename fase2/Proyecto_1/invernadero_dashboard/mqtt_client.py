@@ -50,36 +50,46 @@ def on_connect(client, userdata, flags, rc):
 # mqtt_client.py — reemplazar la función on_message completa
 
 def on_message(client, userdata, msg):
-    topic   = msg.topic
+    topic = msg.topic
     payload = msg.payload.decode("utf-8").strip()
-    topics  = Config.TOPICS
+    topics = Config.TOPICS
 
     print(f"MQTT recibido | {topic}: {payload}")
 
     try:
-        # Todos nuestros sensores publican JSON
+        # Intentamos parsear por si viene en formato JSON
         datos = json.loads(payload)
-    except json.JSONDecodeError:
-        # Si llega texto plano, lo envolvemos
-        datos = {"valor": payload, "estado": "DESCONOCIDO"}
+    except Exception:
+        # Si llega un número suelto (int/float) o texto plano, lo guardamos directo
+        try:
+            if "." in payload:
+                datos = float(payload)
+            else:
+                datos = int(payload)
+        except ValueError:
+            datos = payload
 
-    #valor  = datos.get("valor", payload)
-    try:
+    # Extraemos las variables de forma segura según el tipo de dato entrante
+    if isinstance(datos, dict):
         valor = datos.get("valor", payload)
-    except AttributeError:
-        valor = datos
         estado = datos.get("estado", "")
-        hora   = datos.get("hora", datetime.now().strftime("%H:%M:%S"))
+        hora = datos.get("hora", datetime.now().strftime("%H:%M:%S"))
+    else:
+        valor = datos
+        estado = str(datos) if isinstance(datos, str) else ""
+        hora = datetime.now().strftime("%H:%M:%S")
 
+    # Clasificación por tópicos y guardado seguro en la base de datos
     if topic == topics["temperatura"]:
-        estado_actual["temperatura"]       = valor
+        estado_actual["temperatura"] = valor
         estado_actual["temperatura_estado"] = estado
         estado_actual["ultima_actualizacion"] = hora
         db.guardar_lectura("temperatura", valor)
 
-        # Si hay advertencia de temperatura → guardar evento
         if estado == "ADVERTENCIA_ALTA":
-            db.guardar_evento("TEMP_ALTA", f"Temperatura: {valor}°C", "ADVERTENCIA")
+            db.guardar_evento(
+                "TEMP_ALTA", f"Temperatura: {valor}°C", "ADVERTENCIA"
+            )
 
     elif topic == topics["humedad_ambiente"]:
         estado_actual["humedad_ambiente"] = valor
@@ -91,14 +101,18 @@ def on_message(client, userdata, msg):
         estado_actual["humedad_suelo_area1_estado"] = estado
         db.guardar_lectura("humedad_suelo_area1", valor)
         if estado == "SECO":
-            db.guardar_evento("SUELO_SECO", f"Área 1 seca — valor: {valor}", "ADVERTENCIA")
+            db.guardar_evento(
+                "SUELO_SECO", f"Área 1 seca — valor: {valor}", "ADVERTENCIA"
+            )
 
     elif topic == topics["humedad_suelo_area2"]:
         estado_actual["humedad_suelo_area2"] = valor
         estado_actual["humedad_suelo_area2_estado"] = estado
         db.guardar_lectura("humedad_suelo_area2", valor)
         if estado == "SECO":
-            db.guardar_evento("SUELO_SECO", f"Área 2 seca — valor: {valor}", "ADVERTENCIA")
+            db.guardar_evento(
+                "SUELO_SECO", f"Área 2 seca — valor: {valor}", "ADVERTENCIA"
+            )
 
     elif topic == topics["luz"]:
         estado_actual["luz"] = valor
@@ -110,30 +124,54 @@ def on_message(client, userdata, msg):
         estado_actual["gas_estado"] = estado
         db.guardar_lectura("gas", valor)
         if estado == "GAS_EMERGENCIA":
-            db.guardar_evento("GAS_EMERGENCIA", f"Gas peligroso: {valor}", "EMERGENCIA")
+            db.guardar_evento(
+                "GAS_EMERGENCIA", f"Gas peligroso: {valor}", "EMERGENCIA"
+            )
         elif estado == "GAS_ADVERTENCIA":
-            db.guardar_evento("GAS_ADVERTENCIA", f"Gas elevado: {valor}", "ADVERTENCIA")
+            db.guardar_evento(
+                "GAS_ADVERTENCIA", f"Gas elevado: {valor}", "ADVERTENCIA"
+            )
 
     elif topic == topics["estado_global"]:
-        estado_actual["estado_global"] = datos.get("estado", payload)
-        db.actualizar_estado_global(datos.get("estado", payload))
-        db.guardar_evento("ESTADO_GLOBAL", f"Estado: {datos.get('estado', payload)}")
+        estado_global_val = (
+            datos.get("estado", payload) if isinstance(datos, dict) else payload
+        )
+        estado_actual["estado_global"] = estado_global_val
+        db.actualizar_estado_global(estado_global_val)
+        db.guardar_evento("ESTADO_GLOBAL", f"Estado: {estado_global_val}")
 
     elif topic == topics["riego_area1"]:
-        estado_actual["riego"] = datos.get("estado", "OFF")
+        estado_actual["riego"] = (
+            datos.get("estado", "OFF")
+            if isinstance(datos, dict)
+            else (payload if payload else "OFF")
+        )
 
     elif topic == topics["ventilador"]:
-        estado_actual["ventilador"] = datos.get("estado", "OFF")
+        estado_actual["ventilador"] = (
+            datos.get("estado", "OFF")
+            if isinstance(datos, dict)
+            else (payload if payload else "OFF")
+        )
 
     elif topic == topics["luces"]:
-        estado_actual["luces"] = datos.get("estado", "OFF")
+        estado_actual["luces"] = (
+            datos.get("estado", "OFF")
+            if isinstance(datos, dict)
+            else (payload if payload else "OFF")
+        )
 
     elif topic == topics["alarma"]:
-        estado_actual["alarma"] = datos.get("estado", "OFF")
+        estado_actual["alarma"] = (
+            datos.get("estado", "OFF")
+            if isinstance(datos, dict)
+            else (payload if payload else "OFF")
+        )
 
-    # Tiempo real al navegador
+    # Transmisión en tiempo real al frontend mediante sockets
     if socketio_ref:
         socketio_ref.emit("actualizacion", estado_actual)
+
 
 
 def publicar_comando(accion, valor):
