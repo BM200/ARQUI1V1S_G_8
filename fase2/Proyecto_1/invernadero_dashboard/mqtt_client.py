@@ -67,9 +67,9 @@ def on_message(client, userdata, msg):
     try:
         valor = datos.get("valor", payload)
     except AttributeError:
-    valor = datos
-    estado = datos.get("estado", "")
-    hora   = datos.get("hora", datetime.now().strftime("%H:%M:%S"))
+        valor = datos
+        estado = datos.get("estado", "")
+        hora   = datos.get("hora", datetime.now().strftime("%H:%M:%S"))
 
     if topic == topics["temperatura"]:
         estado_actual["temperatura"]       = valor
