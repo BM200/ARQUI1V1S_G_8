@@ -8,6 +8,7 @@ import secrets
 from functools import wraps
 from pathlib import Path
 
+import requests                          # ← PUENTE HÍBRIDO: reenvío HTTP hacia la Raspberry Pi
 from flask import (
     Flask,
     jsonify,
@@ -17,7 +18,7 @@ from flask import (
     session,
     url_for,
 )
-from flask_cors import CORS 
+from flask_cors import CORS
 from flask_socketio import SocketIO
 import mqtt_client as mqtt_handler
 import db
@@ -49,10 +50,19 @@ FASE2_MODULES = {
 }
 FASE2_MODULE_NAMES = {name: number for number, name in FASE2_MODULES.items()}
 
+# ---------------------------------------------------------------------------
+# CONFIGURACIÓN DE ENTORNO HÍBRIDO
+# Cuando PORT está definido, el proceso corre en Render (nube x86_64).
+# Cuando PORT no está definido, corre directamente en la Raspberry Pi (ARM64).
+# RASPBERRY_URL apunta al servidor Flask local de la Pi para el puente HTTP.
+# ---------------------------------------------------------------------------
+RASPBERRY_URL = os.environ.get("RASPBERRY_URL")          # ej: "http://192.168.1.42:5000"
+_EN_RENDER = bool(os.environ.get("PORT"))                # True únicamente en Render
+
 # Crear la aplicación Flask
 app = Flask(__name__)
 CORS(app)
-#CORS(app, origins=["https://vercel.app"]) 
+#CORS(app, origins=["https://vercel.app"])
 
 dashboard_secret = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
 if not dashboard_secret:
@@ -104,6 +114,78 @@ def resolve_historical_file_path(file_path):
             return resolved
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# HELPER DE PUENTE HÍBRIDO
+# Reenvía la petición HTTP entrante hacia la Raspberry Pi y devuelve su
+# respuesta exacta. Se reutiliza en las tres rutas ARM64.
+# ---------------------------------------------------------------------------
+def _reenviar_a_raspberry(ruta_relativa):
+    """
+    Reenvía la petición actual (headers + JSON body) hacia RASPBERRY_URL.
+
+    Parámetros
+    ----------
+    ruta_relativa : str
+        La misma sub-ruta que se está procesando, ej: "/api/arm64/fase1/run".
+
+    Retorna
+    -------
+    flask.Response con el JSON exacto que respondió la Raspberry Pi,
+    o un error 502/503 si el puente falla.
+    """
+    if not RASPBERRY_URL:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_URL_NOT_SET",
+            "detail": (
+                "Este servidor corre en Render pero RASPBERRY_URL no está "
+                "configurada. Define la variable de entorno RASPBERRY_URL "
+                "apuntando al servidor Flask de la Raspberry Pi."
+            ),
+        }), 503
+
+    destino = RASPBERRY_URL.rstrip("/") + ruta_relativa
+
+    # Reenviamos los mismos headers relevantes (Content-Type, etc.)
+    headers_reenvio = {
+        k: v for k, v in request.headers
+        if k.lower() in ("content-type", "accept", "x-request-id")
+    }
+
+    try:
+        respuesta_pi = requests.request(
+            method=request.method,
+            url=destino,
+            headers=headers_reenvio,
+            json=request.get_json(silent=True),
+            params=request.args,
+            timeout=60,                  # los módulos ASM pueden tardar
+        )
+        return (
+            respuesta_pi.content,
+            respuesta_pi.status_code,
+            {"Content-Type": "application/json"},
+        )
+    except requests.exceptions.ConnectionError as exc:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_UNREACHABLE",
+            "detail": f"No se pudo conectar a la Raspberry Pi ({destino}): {exc}",
+        }), 502
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_TIMEOUT",
+            "detail": f"La Raspberry Pi no respondió en 60 s ({destino})",
+        }), 502
+    except requests.exceptions.RequestException as exc:
+        return jsonify({
+            "ok": False,
+            "error": "BRIDGE_ERROR",
+            "detail": str(exc),
+        }), 502
 
 
 # RUTAS PRINCIPALES
@@ -287,10 +369,22 @@ def columna_modulo_valida(column):
         return False
 
 
+# ---------------------------------------------------------------------------
+# 🚨 RUTA ARM64 — FASE 1
+# Llama a execute_fase1_module que compila y ejecuta ensamblador ARM64.
+# En Render: reenvía la petición íntegra a la Raspberry Pi física.
+# En la Pi:  ejecuta el flujo nativo original sin cambios.
+# ---------------------------------------------------------------------------
 @app.route("/api/arm64/fase1/run", methods=["POST"])
 @login_required
 def run_arm64_fase1():
     """Ejecuta un módulo ARM64 de Fase 1 y guarda su resultado."""
+
+    # ── FILTRO DE ENTORNO ──────────────────────────────────────────────────
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/fase1/run")
+    # ── FIN FILTRO — a partir de aquí solo corre en la Raspberry Pi ────────
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
@@ -411,10 +505,22 @@ def run_arm64_fase1():
     }), 200
 
 
+# ---------------------------------------------------------------------------
+# 🚨 RUTA ARM64 — FASE 2
+# Llama a execute_fase2_module (módulos avanzados: RMSE, regresión, etc.)
+# En Render: reenvía la petición íntegra a la Raspberry Pi física.
+# En la Pi:  ejecuta el flujo nativo original sin cambios.
+# ---------------------------------------------------------------------------
 @app.route("/api/arm64/fase2/run", methods=["POST"])
 @login_required
 def run_arm64_fase2():
     """Ejecuta un módulo avanzado de Fase 2."""
+
+    # ── FILTRO DE ENTORNO ──────────────────────────────────────────────────
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/fase2/run")
+    # ── FIN FILTRO — a partir de aquí solo corre en la Raspberry Pi ────────
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
@@ -523,10 +629,24 @@ def run_arm64_fase2():
     }), status_code
 
 
+# ---------------------------------------------------------------------------
+# 🚨 RUTA ARM64 — ANÁLISIS HISTÓRICO
+# Llama a execute_historical_analysis y lee archivos CSV locales de la Pi.
+# En Render: reenvía la petición íntegra a la Raspberry Pi física.
+#            NOTA: resolve_historical_file_path NO se llama en Render porque
+#            el archivo CSV existe físicamente solo en la Raspberry Pi.
+# En la Pi:  ejecuta el flujo nativo original con resolución de ruta local.
+# ---------------------------------------------------------------------------
 @app.route("/api/arm64/historical/run", methods=["POST"])
 @login_required
 def run_arm64_historical():
     """Ejecuta el analizador histórico ARM64 y guarda su resultado."""
+
+    # ── FILTRO DE ENTORNO ──────────────────────────────────────────────────
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/historical/run")
+    # ── FIN FILTRO — a partir de aquí solo corre en la Raspberry Pi ────────
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
