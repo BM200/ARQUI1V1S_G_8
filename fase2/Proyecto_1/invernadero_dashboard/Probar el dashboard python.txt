@@ -1,0 +1,66 @@
+📝 GUÍA DE INSTALACIÓN PARA USUARIOS
+Aquí tienes las instrucciones completas para que cualquier persona pueda instalar y ejecutar tu proyecto:
+
+🌿 Invernadero Inteligente - Dashboard
+Requisitos previos
+Python 3.12 o superior
+
+Ubuntu 24.04 o similar (Linux)
+
+Conexión a Internet
+
+📦 Instalación paso a paso
+1. Instalar Python y herramientas necesarias
+sudo apt update
+sudo apt install python3-venv python3-full
+
+2. Clonar/Descargar el proyecto
+cd ~/Documentos/  # o donde tengas el proyecto
+# Copiar la carpeta del proyecto
+
+3. Crear entorno virtual
+cd invernadero_dashboard
+python3 -m venv venv
+
+4. Activar entorno virtual
+source venv/bin/activate
+
+5. Instalar dependencias
+pip install flask flask-sqlalchemy flask-socketio paho-mqtt python-dotenv pymongo eventlet
+
+6. Configurar variables de entorno (si usas MongoDB)
+Edita el archivo .env con tus credenciales:
+
+env
+MONGO_URI=mongodb://localhost:27017/
+MONGO_DB=invernadero_db
+MQTT_BROKER=broker.hivemq.com
+MQTT_PORT=1883
+
+7. Ejecutar la aplicación
+python app.py
+8. Abrir en el navegador
+Ve a: http://localhost:5000
+
+🛑 Cómo detener la aplicación
+Presiona Ctrl + C en la terminal
+
+🔄 Para ejecutar nuevamente (cada vez)
+cd ruta/del/proyecto/invernadero_dashboard
+source venv/bin/activate
+python app.py
+
+📋 Lista completa de dependencias
+Crear un archivo requirements.txt:
+
+flask==3.1.3
+flask-sqlalchemy==3.1.1
+flask-socketio==5.6.1
+paho-mqtt==2.1.0
+python-dotenv==1.2.2
+pymongo==4.17.0
+eventlet==0.41.0
+
+Instalar todas de una vez:
+
+pip install -r requirements.txt

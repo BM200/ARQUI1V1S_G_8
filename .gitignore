@@ -1,0 +1,26 @@
+# entornos virtuales
+venv/
+.venv/
+**/venv/
+**/.venv/
+
+# python
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# variables de entorno
+.env
+**/.env
+
+# build arm64
+Proyecto_1/arm64/build/
+**/raspberry/arm64/build/
+
+# resultados generados
+**/resultados_arm64/*.txt
+
+# archivos basura
+*.zip
+*Zone.Identifier
+.DS_Store

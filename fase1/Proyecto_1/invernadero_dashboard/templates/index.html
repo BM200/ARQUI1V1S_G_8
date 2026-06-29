@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invernadero Inteligente IoT</title>
+
+    <!-- Chart.js para las gráficas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+    <!-- Socket.IO para actualizaciones en tiempo real -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     ENCABEZADO
+═══════════════════════════════════════ -->
+<header>
+    <div class="header-content">
+        <h1>🌿 Invernadero Inteligente IoT</h1>
+        <div class="header-right">
+            <span class="badge" id="badge-estado">DESCONECTADO</span>
+            <span class="ultima-actualizacion">
+                Última actualización: <span id="ultima-act">--</span>
+            </span>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════
+     NAVEGACIÓN POR SECCIONES
+═══════════════════════════════════════ -->
+<nav>
+    <button class="nav-btn active" onclick="mostrarSeccion('panel')">Panel Principal</button>
+    <button class="nav-btn" onclick="mostrarSeccion('graficas')">Gráficas</button>
+    <button class="nav-btn" onclick="mostrarSeccion('control')">Control Remoto</button>
+    <button class="nav-btn" onclick="mostrarSeccion('historial')">Historial</button>
+    <button class="nav-btn" onclick="mostrarSeccion('arm64')">Análisis ARM64</button>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════════════════════
+     SECCIÓN 1: PANEL PRINCIPAL
+═══════════════════════════════════════ -->
+<section id="seccion-panel" class="seccion activa">
+    <h2>Panel Principal</h2>
+
+    <!-- Tarjetas de sensores -->
+    <div class="grid-sensores">
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">🌡️</div>
+            <div class="sensor-label">Temperatura</div>
+            <div class="sensor-valor" id="val-temperatura">--</div>
+            <div class="sensor-unidad">°C</div>
+            <div class="sensor-estado" id="est-temperatura">Normal</div>
+        </div>
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">💧</div>
+            <div class="sensor-label">Humedad Ambiental</div>
+            <div class="sensor-valor" id="val-humedad">--</div>
+            <div class="sensor-unidad">%</div>
+            <div class="sensor-estado" id="est-humedad">Normal</div>
+        </div>
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">🌱</div>
+            <div class="sensor-label">Suelo Área 1</div>
+            <div class="sensor-valor" id="val-suelo1">--</div>
+            <div class="sensor-unidad">%</div>
+            <div class="sensor-estado" id="est-suelo1">Normal</div>
+        </div>
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">🌱</div>
+            <div class="sensor-label">Suelo Área 2</div>
+            <div class="sensor-valor" id="val-suelo2">--</div>
+            <div class="sensor-unidad">%</div>
+            <div class="sensor-estado" id="est-suelo2">Normal</div>
+        </div>
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">☀️</div>
+            <div class="sensor-label">Nivel de Luz</div>
+            <div class="sensor-valor" id="val-luz">--</div>
+            <div class="sensor-unidad">lux</div>
+            <div class="sensor-estado" id="est-luz">Normal</div>
+        </div>
+
+        <div class="card sensor-card">
+            <div class="sensor-icon">💨</div>
+            <div class="sensor-label">Nivel de Gas</div>
+            <div class="sensor-valor" id="val-gas">--</div>
+            <div class="sensor-unidad">ppm</div>
+            <div class="sensor-estado" id="est-gas">Normal</div>
+        </div>
+
+    </div>
+
+    <!-- Estado de actuadores -->
+    <h2>Estado de Actuadores</h2>
+    <div class="grid-actuadores">
+
+        <div class="card actuador-card">
+            <div class="actuador-icon">🚿</div>
+            <div class="actuador-label">Riego</div>
+            <div class="actuador-badge" id="act-riego">OFF</div>
+        </div>
+
+        <div class="card actuador-card">
+            <div class="actuador-icon">🌀</div>
+            <div class="actuador-label">Ventilador</div>
+            <div class="actuador-badge" id="act-ventilador">OFF</div>
+        </div>
+
+        <div class="card actuador-card">
+            <div class="actuador-icon">💡</div>
+            <div class="actuador-label">Luces</div>
+            <div class="actuador-badge" id="act-luces">OFF</div>
+        </div>
+
+        <div class="card actuador-card">
+            <div class="actuador-icon">🔔</div>
+            <div class="actuador-label">Alarma</div>
+            <div class="actuador-badge" id="act-alarma">OFF</div>
+        </div>
+
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     SECCIÓN 2: GRÁFICAS
+═══════════════════════════════════════ -->
+<section id="seccion-graficas" class="seccion">
+    <h2>Gráficas Históricas</h2>
+
+    <div class="grid-graficas">
+        <div class="card">
+            <h3>🌡️ Temperatura (°C)</h3>
+            <canvas id="grafica-temperatura"></canvas>
+        </div>
+        <div class="card">
+            <h3>💧 Humedad Ambiental (%)</h3>
+            <canvas id="grafica-humedad"></canvas>
+        </div>
+        <div class="card">
+            <h3>🌱 Humedad Suelo Área 1 (%)</h3>
+            <canvas id="grafica-suelo1"></canvas>
+        </div>
+        <div class="card">
+            <h3>🌱 Humedad Suelo Área 2 (%)</h3>
+            <canvas id="grafica-suelo2"></canvas>
+        </div>
+        <div class="card">
+            <h3>☀️ Nivel de Luz (lux)</h3>
+            <canvas id="grafica-luz"></canvas>
+        </div>
+        <div class="card">
+            <h3>💨 Nivel de Gas (ppm)</h3>
+            <canvas id="grafica-gas"></canvas>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem; text-align:center;">
+        <button class="btn btn-info" onclick="cargarGraficas()">
+            🔄 Actualizar Gráficas
+        </button>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     SECCIÓN 3: CONTROL REMOTO
+═══════════════════════════════════════ -->
+<section id="seccion-control" class="seccion">
+    <h2>Control Remoto</h2>
+
+    <!-- Modo del sistema -->
+    <div class="card">
+        <h3>⚙️ Modo del Sistema</h3>
+        <div class="control-grupo">
+            <button class="btn btn-success" onclick="cambiarModo('AUTO')">
+                🤖 Automático
+            </button>
+            <button class="btn btn-warning" onclick="cambiarModo('MANUAL')">
+                🖐️ Manual
+            </button>
+        </div>
+        <p class="modo-actual">Modo actual: <strong id="modo-actual">--</strong></p>
+    </div>
+
+    <!-- Control de riego -->
+    <div class="card">
+        <h3>🚿 Control de Riego</h3>
+        <div class="control-grupo">
+            <button class="btn btn-info" onclick="enviarComando('riego_area1', 'ON')">
+                💧 Activar Área 1
+            </button>
+            <button class="btn btn-info" onclick="enviarComando('riego_area2', 'ON')">
+                💧 Activar Área 2
+            </button>
+            <button class="btn btn-danger" onclick="enviarComando('riego', 'OFF')">
+                🚫 Detener Riego
+            </button>
+        </div>
+    </div>
+
+    <!-- Control de luces -->
+    <div class="card">
+        <h3>💡 Control de Luces</h3>
+        <div class="control-grupo">
+            <button class="btn btn-success" onclick="enviarComando('luces', 'ON')">
+                💡 Encender
+            </button>
+            <button class="btn btn-danger" onclick="enviarComando('luces', 'OFF')">
+                🌑 Apagar
+            </button>
+        </div>
+    </div>
+
+    <!-- Control de ventilación -->
+    <div class="card">
+        <h3>🌀 Control de Ventilación</h3>
+        <div class="control-grupo">
+            <button class="btn btn-success" onclick="enviarComando('ventilador', 'ON')">
+                🌀 Encender
+            </button>
+            <button class="btn btn-danger" onclick="enviarComando('ventilador', 'OFF')">
+                ⏹️ Apagar
+            </button>
+        </div>
+    </div>
+
+    <!-- Silenciar alarma -->
+    <div class="card">
+        <h3>🔔 Alarma</h3>
+        <div class="control-grupo">
+            <button class="btn btn-danger" onclick="enviarComando('alarma', 'OFF')">
+                🔕 Silenciar Alarma
+            </button>
+            <button class="btn btn-warning" onclick="enviarComando('remoto', 'RESET')">
+                🔄 Restablecer Estado
+            </button>
+        </div>
+    </div>
+
+    <!-- Notificación de comando enviado -->
+    <div id="notificacion" class="notificacion oculto">
+        ✅ Comando enviado correctamente
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     SECCIÓN 4: HISTORIAL
+═══════════════════════════════════════ -->
+<section id="seccion-historial" class="seccion">
+    <h2>Historial</h2>
+
+    <div class="grid-historial">
+        <div class="card">
+            <h3>📋 Últimos Eventos</h3>
+            <div class="tabla-scroll">
+                <table class="tabla">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Tipo</th>
+                            <th>Descripción</th>
+                            <th>Nivel</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-eventos"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🎮 Últimos Comandos</h3>
+            <div class="tabla-scroll">
+                <table class="tabla">
+                    <thead>
+                        <tr>
+                            <th>Hora</th>
+                            <th>Acción</th>
+                            <th>Valor</th>
+                            <th>Origen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-comandos"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="text-align:center; margin-top:1rem;">
+        <button class="btn btn-info" onclick="cargarHistorial()">
+            🔄 Actualizar Historial
+        </button>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════
+     SECCIÓN 5: ANÁLISIS ARM64
+═══════════════════════════════════════ -->
+<section id="seccion-arm64" class="seccion">
+    <h2>Análisis ARM64</h2>
+    <p class="descripcion-arm64">
+        Resultados generados por los módulos de ensamblador ARM64
+        procesando datos reales del invernadero.
+    </p>
+
+    <div class="grid-arm64" id="grid-arm64">
+        <!-- Se llena dinámicamente con JavaScript -->
+        <div class="card arm64-card placeholder">
+            <p>Cargando resultados ARM64...</p>
+        </div>
+    </div>
+
+    <!-- Tarjetas fijas por módulo -->
+    <div class="grid-arm64">
+
+        <div class="card arm64-card">
+            <div class="arm64-header">
+                <span class="arm64-num">M1</span>
+                <h3>Media Ponderada</h3>
+                <div class="arm64-control">
+                    <select id="sensor-m1">
+                        <option value="TEMP">Temperatura</option>
+                        <option value="HUM_AIRE">
+                            Humedad Aire
+                        </option>
+                        <option value="HUM_SUELO_1">
+                            Humedad Suelo 1
+                        </option>
+                        <option value="HUM_SUELO_2">
+                            Humedad Suelo 2
+                        </option>
+                        <option value="LUZ">
+                            Luz
+                        </option>
+                        <option value="GAS">
+                            Gas
+                        </option>
+                    </select>
+
+                    <button
+                        class="btn btn-success"
+                        onclick="ejecutarModulo(1)"
+                    >
+                        ▶ Ejecutar
+                    </button>
+
+                </div>
+            </div>
+            <div class="arm64-datos" id="arm64-media">
+                <div class="arm64-fila">
+                    <span>Total valores:</span>
+                    <strong id="m1-total">--</strong>
+                </div>
+                <div class="arm64-fila">
+                    <span>Suma pesos:</span>
+                    <strong id="m1-pesos">--</strong>
+                </div>
+                <div class="arm64-fila resultado">
+                    <span>Media ponderada:</span>
+                    <strong id="m1-media">--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card arm64-card">
+            <div class="arm64-header">
+                <span class="arm64-num">M2</span>
+                <h3>Varianza y Desviación</h3>
+                <div class="arm64-control">
+                    <select id="sensor-m2">
+                        <option value="TEMP">Temperatura</option>
+                        <option value="HUM_AIRE">Humedad Aire</option>
+                        <option value="HUM_SUELO_1">Suelo 1</option>
+                        <option value="HUM_SUELO_2">Suelo 2</option>
+                        <option value="LUZ">Luz</option>
+                        <option value="GAS">Gas</option>
+                    </select>
+                    <button
+                        class="btn btn-success"
+                        onclick="ejecutarModulo(2)"
+                    >
+                        ▶ Ejecutar
+                    </button>
+                </div>
+            </div>
+            <div class="arm64-datos" id="arm64-varianza">
+                <div class="arm64-fila">
+                    <span>Media:</span>
+                    <strong id="m2-media">--</strong>
+                </div>
+                <div class="arm64-fila">
+                    <span>Varianza:</span>
+                    <strong id="m2-varianza">--</strong>
+                </div>
+                <div class="arm64-fila resultado">
+                    <span>Desv. Estándar:</span>
+                    <strong id="m2-desv">--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card arm64-card">
+            <div class="arm64-header">
+                <span class="arm64-num">M3</span>
+                <h3>Detección de Anomalías</h3>
+                <div class="arm64-control">
+                    <select id="sensor-m3">
+                        <option value="TEMP">Temperatura</option>
+                        <option value="HUM_AIRE">Humedad Aire</option>
+                        <option value="HUM_SUELO_1">Suelo 1</option>
+                        <option value="HUM_SUELO_2">Suelo 2</option>
+                        <option value="LUZ">Luz</option>
+                        <option value="GAS">Gas</option>
+                    </select>
+                    <button
+                        class="btn btn-success"
+                        onclick="ejecutarModulo(3)"
+                    >
+                        ▶ Ejecutar
+                    </button>
+
+                </div>
+
+            </div>
+            <div class="arm64-datos">
+                <div class="arm64-fila">
+                    <span>Media:</span>
+                    <strong id="m3-media">--</strong>
+                </div>
+                <div class="arm64-fila">
+                    <span>Anomalías:</span>
+                    <strong id="m3-anomalias">--</strong>
+                </div>
+                <div class="arm64-fila resultado">
+                    <span>Riesgo:</span>
+                    <strong id="m3-riesgo">--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card arm64-card">
+            <div class="arm64-header">
+                <span class="arm64-num">M4</span>
+                <h3>Predicción Lineal</h3>
+                <div class="arm64-control">
+                <select id="sensor-m4">
+                    <option value="TEMP">Temperatura</option>
+                    <option value="HUM_AIRE">Humedad Aire</option>
+                    <option value="HUM_SUELO_1">Suelo 1</option>
+                    <option value="HUM_SUELO_2">Suelo 2</option>
+                    <option value="LUZ">Luz</option>
+                    <option value="GAS">Gas</option>
+                </select>
+                <button
+                    class="btn btn-success"
+                    onclick="ejecutarModulo(4)"
+                >
+                    ▶ Ejecutar
+                </button>
+
+            </div>
+            </div>
+            <div class="arm64-datos">
+                <div class="arm64-fila">
+                    <span>Valor inicial:</span>
+                    <strong id="m4-inicial">--</strong>
+                </div>
+                <div class="arm64-fila">
+                    <span>Valor final:</span>
+                    <strong id="m4-final">--</strong>
+                </div>
+                <div class="arm64-fila resultado">
+                    <span>Predicción:</span>
+                    <strong id="m4-pred">--</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card arm64-card">
+            <div class="arm64-header">
+                <span class="arm64-num">M5</span>
+                <h3>Tendencia Acumulada</h3>
+                <div class="arm64-control">
+                    <select id="sensor-m5">
+                        <option value="TEMP">Temperatura</option>
+                        <option value="HUM_AIRE">Humedad Aire</option>
+                        <option value="HUM_SUELO_1">Suelo 1</option>
+                        <option value="HUM_SUELO_2">Suelo 2</option>
+                        <option value="LUZ">Luz</option>
+                        <option value="GAS">Gas</option>
+                    </select>
+                    <button
+                        class="btn btn-success"
+                        onclick="ejecutarModulo(5)"
+                    >
+                        ▶ Ejecutar
+                    </button>
+
+                </div>
+
+            </div>
+            <div class="arm64-datos">
+                <div class="arm64-fila">
+                    <span>Incrementos:</span>
+                    <strong id="m5-inc">--</strong>
+                </div>
+                <div class="arm64-fila">
+                    <span>Decrementos:</span>
+                    <strong id="m5-dec">--</strong>
+                </div>
+                <div class="arm64-fila resultado">
+                    <span>Tendencia:</span>
+                    <strong id="m5-tendencia">--</strong>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="card" style="text-align:center; margin-top:1rem;">
+
+    </div>
+</section>
+
+</main>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
