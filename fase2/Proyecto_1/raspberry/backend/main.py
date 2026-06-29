@@ -313,12 +313,20 @@ def guardar_lectura_csv(datos_lectura):
     crear_header = not CSV_ARM64.exists() or CSV_ARM64.stat().st_size == 0
     modo_apertura = "a"
 
+    if crear_header:
+        print(f"[ARM64 CSV] Creando CSV real: {CSV_ARM64}")
+
     if not crear_header:
         with CSV_ARM64.open("r", encoding="utf-8-sig") as archivo:
             primera_linea = archivo.readline().strip()
         if primera_linea != CSV_ARM64_HEADER:
             crear_header = True
             modo_apertura = "w"
+            print(
+                "[ARM64 CSV] Encabezado inválido o viejo detectado. "
+                f"Esperado={CSV_ARM64_HEADER!r} Encontrado={primera_linea!r}. "
+                "Regenerando CSV con lecturas reales."
+            )
 
     with CSV_ARM64.open(modo_apertura, encoding="utf-8") as archivo:
         if crear_header:
@@ -477,4 +485,4 @@ if __name__ == "__main__":
         cliente_mqtt.loop_stop()
         cliente_mqtt.disconnect()
         mongo.close()
-        print("[MAIN] Sistema detenido de forma segura.")
+        print("[MAIN] Sistema detenido de forma segura.") 
