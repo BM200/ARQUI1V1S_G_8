@@ -63,7 +63,11 @@ def on_message(client, userdata, msg):
         # Si llega texto plano, lo envolvemos
         datos = {"valor": payload, "estado": "DESCONOCIDO"}
 
-    valor  = datos.get("valor", payload)
+    #valor  = datos.get("valor", payload)
+    try:
+        valor = datos.get("valor", payload)
+    except AttributeError:
+    valor = datos
     estado = datos.get("estado", "")
     hora   = datos.get("hora", datetime.now().strftime("%H:%M:%S"))
 
