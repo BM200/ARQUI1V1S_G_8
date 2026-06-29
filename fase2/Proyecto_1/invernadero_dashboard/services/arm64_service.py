@@ -16,6 +16,10 @@ DASHBOARD_DIR = SERVICE_DIR.parent
 PROJECT_DIR = DASHBOARD_DIR.parent
 BRIDGE_FILE = PROJECT_DIR / "raspberry" / "backend" / "arm64_bridge.py"
 BRIDGE_MODULE_NAME = "invernadero_arm64_bridge"
+ARM64_DIR = PROJECT_DIR / "raspberry" / "arm64"
+ARM64_CSV = ARM64_DIR / "lecturas.csv"
+ARM64_CSV_HEADER = "TEMP,HUM_AIRE,SOIL1,SOIL2,LUZ,GAS"
+ARM64_OLD_CSV_HEADER = "ID,TEMP,HUM_AIRE,HUM_SUELO_1,HUM_SUELO_2,LUZ,GAS,RIEGO_1,RIEGO_2"
 
 
 @lru_cache(maxsize=1)
@@ -38,6 +42,77 @@ def _load_bridge() -> ModuleType:
     return module
 
 
+def _resolve_arm64_csv(file_path: str | Path | None) -> Path:
+    raw_path = str(file_path or "lecturas.csv").strip() or "lecturas.csv"
+    path = Path(raw_path).expanduser()
+
+    if path.is_absolute():
+        return path.resolve()
+
+    if raw_path == "lecturas.csv":
+        return ARM64_CSV.resolve()
+
+    candidates = [
+        ARM64_DIR / path,
+        PROJECT_DIR.parent / path,
+        PROJECT_DIR / path,
+    ]
+
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.exists():
+            return resolved
+
+    return candidates[0].resolve()
+
+
+def _validate_arm64_csv(file_path: str | Path | None) -> dict[str, Any] | None:
+    csv_path = _resolve_arm64_csv(file_path)
+
+    if not csv_path.is_file():
+        print(f"[ARM64] CSV rechazado: no existe {csv_path}")
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "CSV_NOT_FOUND",
+            "detail": (
+                "No existe el CSV ARM64 real. Ejecuta main.py para regenerar "
+                f"{ARM64_CSV}."
+            ),
+            "file_path": str(csv_path),
+        }
+
+    try:
+        with csv_path.open("r", encoding="utf-8-sig") as archivo:
+            header = archivo.readline().strip()
+    except OSError as exc:
+        print(f"[ARM64] CSV rechazado: no se pudo leer {csv_path}: {exc}")
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "CSV_READ_FAILED",
+            "detail": f"No se pudo leer el CSV ARM64: {exc}",
+            "file_path": str(csv_path),
+        }
+
+    if header != ARM64_CSV_HEADER:
+        reason = "encabezado viejo" if header == ARM64_OLD_CSV_HEADER else "encabezado inválido"
+        print(f"[ARM64] CSV rechazado por {reason}: {header!r}")
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "CSV_HEADER_INVALID",
+            "detail": (
+                "El CSV ARM64 no fue generado por main.py o tiene encabezado viejo. "
+                f"Esperado: {ARM64_CSV_HEADER}. Ejecuta main.py para regenerarlo."
+            ),
+            "file_path": str(csv_path),
+            "header": header,
+        }
+
+    return None
+
+
 def execute_fase1_module(
     module_number: int,
     column: int | str = 2,
@@ -47,6 +122,10 @@ def execute_fase1_module(
 ) -> dict[str, Any]:
     """Ejecuta un módulo migrado sin propagar excepciones a Flask."""
     try:
+        csv_error = _validate_arm64_csv(file_path)
+        if csv_error:
+            return csv_error
+
         bridge = _load_bridge()
         result = bridge.run_fase1_module(
             module_number=module_number,
@@ -92,6 +171,10 @@ def execute_fase2_module(
 ) -> dict[str, Any]:
     """Ejecuta un módulo avanzado de Fase 2 sin propagar excepciones."""
     try:
+        csv_error = _validate_arm64_csv(file_path)
+        if csv_error:
+            return csv_error
+
         bridge = _load_bridge()
         result = bridge.run_fase2_module(
             module_number=module_number,
@@ -137,6 +220,10 @@ def execute_historical_analysis(
 ) -> dict[str, Any]:
     """Ejecuta el analizador histórico real sin propagar excepciones."""
     try:
+        csv_error = _validate_arm64_csv(file_path)
+        if csv_error:
+            return csv_error
+
         bridge = _load_bridge()
         result = bridge.run_historical_analysis(
             file_path=str(file_path),

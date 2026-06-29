@@ -39,8 +39,8 @@ function actualizarPanel(datos) {
     // Sensores
     actualizarSensor("temperatura",  datos.temperatura,      28, 35, "°C");
     actualizarSensor("humedad",      datos.humedad_ambiente, 40, 80, "%");
-    actualizarSensor("suelo1",       datos.humedad_suelo_area1,  30, 70, "%");
-    actualizarSensor("suelo2",       datos.humedad_suelo_area2,  30, 70, "%");
+    actualizarSensor("suelo1",       datos.humedad_suelo_area1,  400, 700, "ADC");
+    actualizarSensor("suelo2",       datos.humedad_suelo_area2,  400, 700, "ADC");
     actualizarSensor("luz",          datos.luz,              100, 800, "lux");
     actualizarSensor("gas",          datos.gas,              0,  300, "ppm");
 
@@ -60,7 +60,10 @@ function actualizarPanel(datos) {
 function actualizarSensor(id, valor, minNormal, maxNormal, unidad) {
     // Actualizar el número
     const elemValor = document.getElementById("val-" + id);
-    if (elemValor) elemValor.textContent = valor || "--";
+    if (elemValor) {
+        elemValor.textContent =
+            valor === undefined || valor === null || valor === "" ? "--" : valor;
+    }
 
     // Determinar y mostrar el estado
     const elemEstado = document.getElementById("est-" + id);
@@ -74,11 +77,10 @@ function actualizarSensor(id, valor, minNormal, maxNormal, unidad) {
     }
 
     if (id === "suelo1" || id === "suelo2") {
-        // Para el suelo la lógica es diferente
-        if (num < minNormal) {
+        if (num >= maxNormal) {
             elemEstado.textContent = "SECO";
             elemEstado.className   = "sensor-estado advertencia";
-        } else if (num > maxNormal) {
+        } else if (num < minNormal) {
             elemEstado.textContent = "SATURADO";
             elemEstado.className   = "sensor-estado advertencia";
         } else {
@@ -248,9 +250,8 @@ async function cargarGraficas() {
             datos[sensor].valores.push(parseFloat(valor));
         }
 
-        // las lecturas vienen de mas reciente a mas antigua
-        // se invierten para graficar de izquierda a derecha
-        lecturas.slice().reverse().forEach(l => {
+        // las lecturas ya vienen en orden cronológico desde /api/lecturas
+        lecturas.forEach(l => {
             if (l.tipo && datos[l.tipo]) {
                 agregarDato(l.tipo, l, l.valor);
                 return;

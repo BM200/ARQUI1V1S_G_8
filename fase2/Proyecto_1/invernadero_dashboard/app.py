@@ -153,10 +153,57 @@ def index():
 
 
 # RUTAS DE DATOS (el JS las llama para obtener info)
+def estado_mqtt_tiene_datos_reales(estado):
+    """Indica si el estado en memoria ya recibió al menos una lectura MQTT."""
+    campos_sensor = (
+        "temperatura",
+        "humedad_ambiente",
+        "humedad_suelo_area1",
+        "humedad_suelo_area2",
+        "luz",
+        "gas",
+    )
+    return all(estado.get(campo) not in (None, "", "--") for campo in campos_sensor)
+
+
+def estado_desde_lectura_completa(lectura):
+    """Mapea la última lectura completa de MongoDB al contrato de /api/estado."""
+    estado = dict(mqtt_handler.estado_actual)
+    estado.update({
+        "temperatura": lectura.get("temp"),
+        "humedad_ambiente": lectura.get("hum"),
+        "humedad_suelo_area1": lectura.get("val_s1"),
+        "humedad_suelo_area2": lectura.get("val_s2"),
+        "luz": lectura.get("val_luz"),
+        "gas": lectura.get("val_gas"),
+        "estado_global": (
+            estado.get("estado_global")
+            if estado.get("estado_global") != "DESCONECTADO"
+            else "MONGODB"
+        ),
+        "ultima_actualizacion": formatear_fecha_dashboard(
+            lectura.get("timestamp") or lectura.get("fecha")
+        ),
+    })
+
+    if lectura.get("decision_arm64"):
+        estado["decision_arm64"] = lectura.get("decision_arm64")
+
+    return estado
+
+
 @app.route("/api/estado")
 @login_required
 def get_estado():
     """Devuelve el estado actual del invernadero"""
+    if estado_mqtt_tiene_datos_reales(mqtt_handler.estado_actual):
+        return jsonify(mqtt_handler.estado_actual)
+
+    lectura = db.obtener_ultima_lectura_completa()
+    if lectura:
+        print("[Dashboard] /api/estado usando fallback desde MongoDB.")
+        return jsonify(estado_desde_lectura_completa(lectura))
+
     return jsonify(mqtt_handler.estado_actual)
 
 

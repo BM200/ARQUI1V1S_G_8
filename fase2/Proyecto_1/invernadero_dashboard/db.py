@@ -168,14 +168,62 @@ def actualizar_estado_global(estado):
     )
 
 
+LECTURA_COMPLETA_QUERY = {
+    "temp": {"$exists": True},
+    "hum": {"$exists": True},
+    "val_s1": {"$exists": True},
+    "val_s2": {"$exists": True},
+    "val_luz": {"$exists": True},
+    "val_gas": {"$exists": True},
+}
+
+
 def obtener_ultimas_lecturas(limite=50):
-    """Obtiene las últimas lecturas para las gráficas"""
-    return list(
-        sensor_readings
-        .find({}, {"_id": 0})   # excluye el _id de MongoDB
-        .sort("timestamp", -1)  # las más recientes primero
-        .limit(limite)
-    )
+    """Obtiene solo lecturas completas reales para las gráficas."""
+    try:
+        if sensor_readings is None:
+            print("[MongoDB] No se pudieron obtener lecturas: base no disponible.")
+            return []
+
+        lecturas_recientes = list(
+            sensor_readings
+            .find(LECTURA_COMPLETA_QUERY, {"_id": 0})
+            .sort([("timestamp", -1), ("fecha", -1)])
+            .limit(limite)
+        )
+        lecturas = list(reversed(lecturas_recientes))
+        print(
+            "[MongoDB] /api/lecturas filtro completo: "
+            f"{len(lecturas)} lecturas reales, parciales excluidas."
+        )
+        return lecturas
+
+    except Exception as exc:
+        print(f"[MongoDB] No se pudieron obtener lecturas completas: {exc}")
+        return []
+
+
+def obtener_ultima_lectura_completa():
+    """Obtiene la última lectura completa real guardada por main.py."""
+    try:
+        if sensor_readings is None:
+            print("[MongoDB] No se pudo obtener lectura completa: base no disponible.")
+            return None
+
+        lectura = sensor_readings.find_one(
+            LECTURA_COMPLETA_QUERY,
+            {"_id": 0},
+            sort=[("timestamp", -1), ("fecha", -1)],
+        )
+
+        if lectura is None:
+            print("[MongoDB] No hay lecturas completas reales disponibles.")
+
+        return lectura
+
+    except Exception as exc:
+        print(f"[MongoDB] No se pudo obtener lectura completa: {exc}")
+        return None
 
 
 def obtener_ultima_decision_arm64():
