@@ -115,17 +115,26 @@ def on_message(client, userdata, msg):
         db.actualizar_estado_global(datos.get("estado", payload))
         db.guardar_evento("ESTADO_GLOBAL", f"Estado: {datos.get('estado', payload)}")
 
-    elif topic == topics["riego_area1"]:
-        estado_actual["riego"] = datos.get("estado", "OFF")
+    elif topic in (topics["riego"], topics["riego_area1"], topics["riego_area2"]):
+        estado = datos.get("estado", payload)
+        estado_actual["riego"] = "ON" if estado in ("ON", "ENCENDIDO") else "OFF"
 
     elif topic == topics["ventilador"]:
-        estado_actual["ventilador"] = datos.get("estado", "OFF")
+        estado = datos.get("estado", payload)
+        estado_actual["ventilador"] = "ON" if estado in ("ON", "ENCENDIDO") else "OFF"
 
     elif topic == topics["luces"]:
-        estado_actual["luces"] = datos.get("estado", "OFF")
+        estado = datos.get("estado")
+        detalle = datos.get("detalle", "")
+        if estado is None and detalle:
+            estado = "ENCENDIDO" if "encendido" in detalle else "APAGADO"
+        estado_actual["luces"] = "ON" if estado in ("ON", "ENCENDIDO") else "OFF"
 
     elif topic == topics["alarma"]:
-        estado_actual["alarma"] = datos.get("estado", "OFF")
+        estado = datos.get("estado", payload)
+        estado_actual["alarma"] = (
+            "ON" if estado in ("ON", "ENCENDIDO", "EMERGENCIA") else "OFF"
+        )
 
     # Tiempo real al navegador
     if socketio_ref:
@@ -142,6 +151,7 @@ def publicar_comando(accion, valor):
         "ventilador": topics["ventilador"],
         "luces":      topics["luces"],
         "alarma":     topics["alarma"],
+        "control_remoto": topics["control_remoto"],
         "remoto":     topics["control_remoto"],
     }
 
@@ -152,19 +162,45 @@ def publicar_comando(accion, valor):
         print(f"[MQTT] No se pudo enviar comando. Cliente desconectado: {accion}={valor}")
         return False
 
-    topic = mapa[accion]
-    resultado = mqtt_client.publish(topic, str(valor), qos=1)
+    payload = _normalizar_payload_comando(accion, valor)
+    topics_destino = [mapa[accion]]
 
-    if resultado.rc != mqtt.MQTT_ERR_SUCCESS:
-        print(
-            f"[MQTT] Fallo publicando comando | "
-            f"topic={topic} accion={accion} valor={valor} rc={resultado.rc}"
-        )
-        return False
+    if accion == "riego" and payload == "APAGAR":
+        topics_destino = [topics["riego_area1"], topics["riego_area2"]]
 
-    db.guardar_comando(accion, valor)
-    print(f"Comando enviado | {topic} | {accion}: {valor}")
+    for topic in topics_destino:
+        resultado = mqtt_client.publish(topic, payload, qos=1)
+
+        if resultado.rc != mqtt.MQTT_ERR_SUCCESS:
+            print(
+                f"[MQTT] Fallo publicando comando | "
+                f"topic={topic} accion={accion} valor={payload} rc={resultado.rc}"
+            )
+            return False
+
+    try:
+        db.guardar_comando(accion, payload)
+    except Exception as exc:
+        print(f"[MongoDB] No se pudo guardar comando {accion}: {exc}")
+
+    print(f"Comando enviado | {topics_destino} | {accion}: {payload}")
     return True
+
+
+def _normalizar_payload_comando(accion, valor):
+    """Alinea los payloads del dashboard con main.py."""
+    valor_normalizado = str(valor).strip().upper()
+
+    if accion == "control_remoto":
+        return "AUTOMATICO" if valor_normalizado == "AUTO" else valor_normalizado
+
+    if valor_normalizado in ("ON", "ENCENDER", "ENCENDIDO", "1"):
+        return "ENCENDER"
+
+    if valor_normalizado in ("OFF", "APAGAR", "APAGADO", "0"):
+        return "APAGAR"
+
+    return valor_normalizado
 
 
 # Crear y configurar el cliente MQTT

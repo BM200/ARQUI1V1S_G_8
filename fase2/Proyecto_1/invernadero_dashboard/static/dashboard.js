@@ -1203,11 +1203,14 @@ async function cambiarModo(modo) {
 
         if (resultado.ok) {
             const elemModo = document.getElementById("modo-actual");
-            if (elemModo) elemModo.textContent = modo;
-            mostrarNotificacion(`✅ Modo cambiado a: ${modo}`);
+            if (elemModo) elemModo.textContent = resultado.modo || modo;
+            mostrarNotificacion(`✅ Modo cambiado a: ${resultado.modo || modo}`);
+        } else {
+            mostrarNotificacion(`❌ Error: ${resultado.error}`, true);
         }
 
     } catch (error) {
+        mostrarNotificacion("❌ Error de conexión con el servidor", true);
         console.error("Error cambiando modo:", error);
     }
 }

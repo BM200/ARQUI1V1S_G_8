@@ -862,16 +862,20 @@ def on_disconnect():
 
 # INICIO DEL SERVIDOR
 if __name__ == "__main__":
-    if _EN_RENDER:
-        # En Render levanta el puerto asignado dinámicamente por la nube
-        port = int(os.getenv("PORT", 5000))
-        print("Iniciando Dashboard Invernadero Inteligente (Render)...")
-        print("─" * 45)
-        socketio.run(app, host="0.0.0.0", port=port)
-    else:
-        # En la Raspberry Pi se muda al puerto seguro 5050 para no chocar
-        print("Iniciando Servidor Puente Híbrido en la Raspberry Pi...")
-        print("Escuchando localmente en: http://127.0.0.1:5050")
-        print("─" * 45)
-        mqtt_handler.iniciar_mqtt()
-        socketio.run(app, host="0.0.0.0", port=5050, allow_unsafe_werkzeug=True)
+
+    print("Iniciando Dashboard Invernadero Inteligente...")
+    print("─" * 45)
+
+    # Iniciar conexión MQTT en segundo plano
+    mqtt_handler.iniciar_mqtt()
+
+    # Iniciar servidor web
+    print("Servidor corriendo en: http://localhost:5000")
+    print("─" * 45)
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        allow_unsafe_werkzeug=True,
+    )

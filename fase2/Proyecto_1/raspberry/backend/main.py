@@ -27,9 +27,9 @@ from config import (
     TOPIC_SUELO_AREA1, TOPIC_SUELO_AREA2,
     TOPIC_LDR, TOPIC_GAS,
     TOPIC_DHT_TEMP, TOPIC_DHT_HUM,
-    TOPIC_RIEGO_AREA1, TOPIC_VENTILADOR,
+    TOPIC_RIEGO_GLOBAL, TOPIC_RIEGO_AREA1, TOPIC_RIEGO_AREA2, TOPIC_VENTILADOR,
     TOPIC_LUCES, TOPIC_ALARMA,
-    TOPIC_CONTROL_MANUAL, TOPIC_ESTADO_GLOBAL,
+    TOPIC_CONTROL_REMOTO, TOPIC_CONTROL_MANUAL, TOPIC_ESTADO_GLOBAL,
     PUERTO_SERIAL, VELOCIDAD, INTERVALO_LECTURA_SEG,
     IDX_GAS, IDX_SUELO1, IDX_SUELO2, IDX_LDR,
     UMBRAL_SECO, UMBRAL_SATURADO, UMBRAL_LUZ_BAJA,
@@ -89,10 +89,13 @@ CSV_ARM64_HEADER = "TEMP,HUM_AIRE,SOIL1,SOIL2,LUZ,GAS"
 def on_connect(client, userdata, flags, rc, props=None):
     if rc == 0:
         print("[MQTT] Conectado al broker")
+        client.subscribe(TOPIC_RIEGO_GLOBAL)
         client.subscribe(TOPIC_RIEGO_AREA1)
+        client.subscribe(TOPIC_RIEGO_AREA2)
         client.subscribe(TOPIC_VENTILADOR)
         client.subscribe(TOPIC_LUCES)
         client.subscribe(TOPIC_ALARMA)
+        client.subscribe(TOPIC_CONTROL_REMOTO)
         client.subscribe(TOPIC_CONTROL_MANUAL)
     else:
         print(f"[MQTT] Error de conexión: {rc}")
@@ -115,7 +118,7 @@ def on_message(client, userdata, msg):
                 comando = contenido
             datos = {"comando": comando}
 
-        if topic == TOPIC_RIEGO_AREA1:
+        if topic in [TOPIC_RIEGO_GLOBAL, TOPIC_RIEGO_AREA1, TOPIC_RIEGO_AREA2]:
             if comando == "ENCENDER":
                 activar_bomba(origen="DASHBOARD")
             elif comando == "APAGAR":
@@ -137,7 +140,7 @@ def on_message(client, userdata, msg):
             if comando in ["RESET", "APAGAR"]:
                 reset_emergencia()
 
-        elif topic == TOPIC_CONTROL_MANUAL:
+        elif topic in [TOPIC_CONTROL_REMOTO, TOPIC_CONTROL_MANUAL]:
             modo = datos.get("modo", contenido)
             if modo in ["AUTOMATICO", "MANUAL"]:
                 modo_ventilador = modo
