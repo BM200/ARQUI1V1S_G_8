@@ -766,9 +766,9 @@ window.ejecutarModulo = ejecutarModulo;
 
 
 const MODULOS_FASE2 = {
-    1: "modulo_rmse",
+    1: "modulo_1_rmse",
     2: "modulo_2_regresion",
-    3: "modulo_3_prediccion",
+    3: "modulo_3_prediccion_futura",
     4: "modulo_4_integral_error",
     5: "modulo_5_derivada_local"
 };
@@ -780,6 +780,48 @@ const COLUMNAS_FASE2 = new Set([
     "LUZ",
     "GAS"
 ]);
+
+
+function crearInputARM64(id, type, value, attrs = {}) {
+    const input = document.createElement("input");
+    input.id = id;
+    input.type = type;
+    input.value = value;
+    Object.entries(attrs).forEach(([key, val]) => input.setAttribute(key, val));
+    return input;
+}
+
+
+function prepararControlesFase2Historicos() {
+    for (let moduleNumber = 1; moduleNumber <= 5; moduleNumber += 1) {
+        const control = document.getElementById(`fase2-column-${moduleNumber}`)?.parentElement;
+        if (!control || document.getElementById(`fase2-file-${moduleNumber}`)) continue;
+
+        const button = control.querySelector("button");
+        control.insertBefore(
+            crearInputARM64(`fase2-file-${moduleNumber}`, "text", "lecturas.csv", {
+                "aria-label": `Archivo CSV Fase 2 módulo ${moduleNumber}`
+            }),
+            button
+        );
+        control.insertBefore(
+            crearInputARM64(`fase2-start-${moduleNumber}`, "number", "1", {
+                min: "1",
+                step: "1",
+                "aria-label": `Línea inicial Fase 2 módulo ${moduleNumber}`
+            }),
+            button
+        );
+        control.insertBefore(
+            crearInputARM64(`fase2-end-${moduleNumber}`, "number", "30", {
+                min: "1",
+                step: "1",
+                "aria-label": `Línea final Fase 2 módulo ${moduleNumber}`
+            }),
+            button
+        );
+    }
+}
 
 
 function idsModuloFase2(moduleNumber) {
@@ -861,6 +903,9 @@ function obtenerPrediccionFase2(resultado) {
 
 function obtenerPayloadFase2(moduleNumber) {
     const columnSelect = document.getElementById(`fase2-column-${moduleNumber}`);
+    const fileInput = document.getElementById(`fase2-file-${moduleNumber}`);
+    const startInput = document.getElementById(`fase2-start-${moduleNumber}`);
+    const endInput = document.getElementById(`fase2-end-${moduleNumber}`);
     const idealInput = document.getElementById(`fase2-ideal-${moduleNumber}`);
     const kInput = document.getElementById(`fase2-k-${moduleNumber}`);
     const selectedColumn = columnSelect ? columnSelect.value : "TEMP";
@@ -869,9 +914,9 @@ function obtenerPayloadFase2(moduleNumber) {
     return {
         module_number: moduleNumber,
         module_name: MODULOS_FASE2[moduleNumber],
-        file_path: "lecturas.csv",
-        start_line: 1,
-        end_line: 30,
+        file_path: fileInput ? fileInput.value.trim() || "lecturas.csv" : "lecturas.csv",
+        start_line: startInput ? Number(startInput.value) : 1,
+        end_line: endInput ? Number(endInput.value) : 30,
         column: column,
         ideal: idealInput ? idealInput.value || 25 : 25,
         k: kInput ? kInput.value || 5 : 5
@@ -973,6 +1018,8 @@ async function ejecutarAnalisisHistorico() {
     const startInput = document.getElementById("historical-start-line");
     const endInput = document.getElementById("historical-end-line");
     const columnSelect = document.getElementById("historical-column");
+    const idealInput = document.getElementById("historical-ideal");
+    const kInput = document.getElementById("historical-k");
     const resultBox = document.getElementById(
         "resultado-historico-arm64"
     );
@@ -982,6 +1029,8 @@ async function ejecutarAnalisisHistorico() {
     const startLine = startInput ? Number(startInput.value) : NaN;
     const endLine = endInput ? Number(endInput.value) : NaN;
     const column = columnSelect ? columnSelect.value : "";
+    const ideal = idealInput ? Number(idealInput.value) : 25;
+    const k = kInput ? Number(kInput.value) : 10;
 
     const validColumns = new Set([
         "TEMP",
@@ -993,12 +1042,9 @@ async function ejecutarAnalisisHistorico() {
     ]);
 
     function showValidationError(message) {
-        if (resultBox) {
-            resultBox.className =
-                "arm64-result-box historical-result-box error";
-            resultBox.textContent =
-                "ERROR DE VALIDACIÓN\n" + message;
-        }
+        pintarErrorTarjetaARM64("historical-full", message, {
+            error: "VALIDATION_ERROR"
+        });
     }
 
     if (!filePath) {
@@ -1025,6 +1071,11 @@ async function ejecutarAnalisisHistorico() {
         return;
     }
 
+    if (!Number.isInteger(ideal) || ideal < 1 || !Number.isInteger(k) || k < 1) {
+        showValidationError("IDEAL y K deben ser enteros mayores o iguales a 1.");
+        return;
+    }
+
     const originalButtonText = button ? button.textContent : "";
 
     if (button) {
@@ -1048,7 +1099,9 @@ async function ejecutarAnalisisHistorico() {
                 file_path: filePath,
                 start_line: startLine,
                 end_line: endLine,
-                column: column
+                column: column,
+                ideal: ideal,
+                k: k
             })
         });
 
@@ -1062,12 +1115,9 @@ async function ejecutarAnalisisHistorico() {
                 payload.data?.detail ||
                 "El análisis histórico no pudo completarse.";
 
-            if (resultBox) {
-                resultBox.className =
-                    "arm64-result-box historical-result-box error";
-                resultBox.textContent =
-                    `ERROR: ${errorName}\nDETAIL: ${detail}`;
-            }
+            pintarErrorTarjetaARM64("historical-full", detail, {
+                error: errorName
+            });
             return;
         }
 
@@ -1077,26 +1127,18 @@ async function ejecutarAnalisisHistorico() {
             "";
         const parsed = payload.data?.parsed || {};
 
-        if (resultBox) {
-            resultBox.className =
-                "arm64-result-box historical-result-box success";
-            resultBox.textContent =
-                "RESULTADO HISTÓRICO ARM64\n" +
-                (outputText || JSON.stringify(parsed, null, 2));
-        }
+        pintarResultadoTarjetaARM64("historical-full", parsed, outputText);
 
         if (typeof cargarARM64 === "function") {
             await cargarARM64();
         }
 
     } catch (error) {
-        if (resultBox) {
-            resultBox.className =
-                "arm64-result-box historical-result-box error";
-            resultBox.textContent =
-                "ERROR DE CONEXIÓN\n" +
-                (error.message || String(error));
-        }
+        pintarErrorTarjetaARM64(
+            "historical-full",
+            error.message || String(error),
+            { error: "CONNECTION_ERROR" }
+        );
 
         console.error(
             "Error ejecutando análisis histórico ARM64:",
@@ -1196,11 +1238,328 @@ function mostrarNotificacion(mensaje, esError = false) {
 
 
 // ═══════════════════════════════════════
+// TARJETAS ARM64 NUEVAS
+// ═══════════════════════════════════════
+
+const ARM64_COLUMNAS = [
+    ["TEMP", "Temperatura"],
+    ["HUM_AIRE", "Humedad aire"],
+    ["SOIL1", "Suelo 1"],
+    ["SOIL2", "Suelo 2"],
+    ["LUZ", "Luz"],
+    ["GAS", "Gas"]
+];
+
+const ARM64_FASE1_CARDS = [
+    { number: 1, title: "Media", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "MEAN", "STATUS"] },
+    { number: 2, title: "Varianza y desviación", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "MEAN", "VARIANCE", "STD_DEV", "STATUS"] },
+    { number: 3, title: "Detección de anomalías", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "MEAN", "STD_DEV", "ANOMALIES", "SYSTEM_RISK", "STATUS"] },
+    { number: 4, title: "Predicción lineal", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "INITIAL_VALUE", "FINAL_VALUE", "TOTAL_DIFF", "AVG_CHANGE_X100", "NEXT_VALUE_X100", "STATUS"] },
+    { number: 5, title: "Tendencia acumulada", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "INCREMENTS", "DECREMENTS", "MAX_UP_STREAK", "MAX_DOWN_STREAK", "ACCUM_DIFF", "TREND", "STATUS"] }
+];
+
+const ARM64_FASE2_CARDS = [
+    { number: 1, title: "RMSE", moduleName: "modulo_1_rmse", ideal: true, resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "IDEAL", "MSE", "RMSE", "STATUS"] },
+    { number: 2, title: "Regresión lineal", moduleName: "modulo_2_regresion", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "SLOPE_X100", "INTERCEPT_X100", "TREND", "STATUS"] },
+    { number: 3, title: "Predicción futura", moduleName: "modulo_3_prediccion_futura", k: true, resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "K", "SLOPE_X100", "PREDICTED_5", "PREDICTED_K", "STATUS"] },
+    { number: 4, title: "Integral del error", moduleName: "modulo_4_integral_error", ideal: true, resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "IDEAL", "ERROR_INTEGRAL", "MEAN_ABS_ERROR", "STATUS"] },
+    { number: 5, title: "Derivada local", moduleName: "modulo_5_derivada_local", resultKeys: ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "WINDOW_SIZE", "MAX_LOCAL_SLOPE_X100", "STATUS"] }
+];
+
+let arm64CardsRendered = false;
+
+function opcionesColumnasARM64() {
+    return ARM64_COLUMNAS.map(([value, label]) =>
+        `<option value="${value}">${label}</option>`
+    ).join("");
+}
+
+function campoARM64(id, label, type, value, extra = "") {
+    return `
+        <label class="arm64-field">
+            <span>${label}</span>
+            <input id="${id}" type="${type}" value="${value}" ${extra}>
+        </label>
+    `;
+}
+
+function selectorColumnaARM64(id) {
+    return `
+        <label class="arm64-field">
+            <span>Columna</span>
+            <select id="${id}">${opcionesColumnasARM64()}</select>
+        </label>
+    `;
+}
+
+function crearTarjetaModuloARM64(phase, config) {
+    const prefix = `${phase}-${config.number}`;
+    const extraFields = [
+        config.ideal ? campoARM64(`${prefix}-ideal`, "Ideal", "number", "25", "step=\"1\"") : "",
+        config.k ? campoARM64(`${prefix}-k`, "K futuro", "number", "5", "min=\"1\" step=\"1\"") : ""
+    ].join("");
+    const rows = config.resultKeys.map(key => `
+        <div class="arm64-fila">
+            <span>${key}</span>
+            <strong data-arm64-key="${key}">--</strong>
+        </div>
+    `).join("");
+
+    return `
+        <div class="card arm64-card" data-arm64-card="${prefix}">
+            <div class="arm64-header">
+                <span class="arm64-num">${phase === "fase1" ? "F1" : "F2"}-${config.number}</span>
+                <h3>${config.title}</h3>
+            </div>
+            <div class="arm64-form-grid">
+                ${campoARM64(`${prefix}-file`, "Archivo CSV", "text", "lecturas.csv")}
+                ${campoARM64(`${prefix}-start`, "Línea inicial", "number", "1", "min=\"1\" step=\"1\"")}
+                ${campoARM64(`${prefix}-end`, "Línea final", "number", "10", "min=\"1\" step=\"1\"")}
+                ${selectorColumnaARM64(`${prefix}-column`)}
+                ${extraFields}
+            </div>
+            <button class="btn btn-success arm64-run-btn" type="button" onclick="ejecutarTarjetaARM64('${phase}', ${config.number})">
+                Ejecutar
+            </button>
+            <div class="arm64-datos">${rows}</div>
+            <pre class="arm64-result-box arm64-card-result" aria-live="polite">Sin ejecutar.</pre>
+        </div>
+    `;
+}
+
+function crearTarjetaHistoricaARM64() {
+    const rows = ["CALC", "COLUMN", "WINDOW_START", "WINDOW_END", "COUNT", "IDEAL", "K", "RMSE", "TREND", "RECOMMENDATION", "STATUS"].map(key => `
+        <div class="arm64-fila">
+            <span>${key}</span>
+            <strong data-arm64-key="${key}">--</strong>
+        </div>
+    `).join("");
+
+    return `
+        <div class="card arm64-card historical-arm64-card" data-arm64-card="historical-full">
+            <div class="arm64-header">
+                <span class="arm64-num">H</span>
+                <h3>Analizador histórico completo</h3>
+            </div>
+            <div class="arm64-form-grid">
+                ${campoARM64("historical-file-path", "Archivo CSV", "text", "lecturas.csv")}
+                ${campoARM64("historical-start-line", "Línea inicial", "number", "1", "min=\"1\" step=\"1\"")}
+                ${campoARM64("historical-end-line", "Línea final", "number", "10", "min=\"1\" step=\"1\"")}
+                ${selectorColumnaARM64("historical-column")}
+                ${campoARM64("historical-ideal", "Ideal", "number", "55", "step=\"1\"")}
+                ${campoARM64("historical-k", "K futuro", "number", "10", "min=\"1\" step=\"1\"")}
+            </div>
+            <button class="btn btn-success arm64-run-btn" type="button" id="btn-historical-arm64" onclick="ejecutarAnalisisHistorico()">
+                Ejecutar
+            </button>
+            <div class="arm64-datos">${rows}</div>
+            <pre id="resultado-historico-arm64" class="arm64-result-box arm64-card-result" aria-live="polite">Sin ejecutar.</pre>
+        </div>
+    `;
+}
+
+function renderArm64Cards() {
+    if (arm64CardsRendered) return;
+
+    const fase1Grid = document.getElementById("grid-arm64-fase1");
+    const fase2Grid = document.getElementById("grid-arm64-fase2");
+    const historicalGrid = document.getElementById("grid-arm64-historical");
+
+    if (fase1Grid) {
+        fase1Grid.innerHTML = ARM64_FASE1_CARDS.map(card =>
+            crearTarjetaModuloARM64("fase1", card)
+        ).join("");
+    }
+
+    if (fase2Grid) {
+        fase2Grid.innerHTML = ARM64_FASE2_CARDS.map(card =>
+            crearTarjetaModuloARM64("fase2", card)
+        ).join("");
+    }
+
+    if (historicalGrid) {
+        historicalGrid.innerHTML = crearTarjetaHistoricaARM64();
+    }
+
+    arm64CardsRendered = true;
+}
+
+function getArm64Card(cardId) {
+    return document.querySelector(`[data-arm64-card="${cardId}"]`);
+}
+
+function valorInputARM64(id, fallback) {
+    const elem = document.getElementById(id);
+    const value = elem ? elem.value : "";
+    return value === "" ? fallback : value;
+}
+
+function payloadTarjetaARM64(phase, moduleNumber) {
+    const prefix = `${phase}-${moduleNumber}`;
+    const config = phase === "fase2"
+        ? ARM64_FASE2_CARDS.find(card => card.number === moduleNumber)
+        : null;
+    const payload = {
+        module_number: moduleNumber,
+        file_path: valorInputARM64(`${prefix}-file`, "lecturas.csv").trim() || "lecturas.csv",
+        start_line: Number(valorInputARM64(`${prefix}-start`, "1")),
+        end_line: Number(valorInputARM64(`${prefix}-end`, "10")),
+        column: valorInputARM64(`${prefix}-column`, "TEMP")
+    };
+
+    if (config?.moduleName) payload.module_name = config.moduleName;
+    if (config?.ideal) payload.ideal = Number(valorInputARM64(`${prefix}-ideal`, "25"));
+    if (config?.k) payload.k = Number(valorInputARM64(`${prefix}-k`, "5"));
+
+    return payload;
+}
+
+function validarPayloadARM64(payload, needs = {}) {
+    if (!payload.file_path) return "Archivo CSV no puede estar vacío.";
+    if (!Number.isInteger(payload.start_line) || payload.start_line < 1) {
+        return "Línea inicial debe ser un entero mayor o igual a 1.";
+    }
+    if (!Number.isInteger(payload.end_line) || payload.end_line < payload.start_line) {
+        return "Línea final debe ser mayor o igual a línea inicial.";
+    }
+    if (!ARM64_COLUMNAS.some(([value]) => value === payload.column)) {
+        return "Columna no válida.";
+    }
+    if (needs.ideal && !Number.isFinite(payload.ideal)) return "Ideal debe ser numérico.";
+    if (needs.k && (!Number.isInteger(payload.k) || payload.k < 1)) {
+        return "K futuro debe ser un entero mayor o igual a 1.";
+    }
+    return "";
+}
+
+function pintarResultadoTarjetaARM64(cardId, parsed, rawText = "") {
+    const card = getArm64Card(cardId);
+    if (!card) return;
+
+    card.querySelectorAll("[data-arm64-key]").forEach(elem => {
+        const key = elem.getAttribute("data-arm64-key");
+        elem.textContent = parsed[key] ?? "--";
+        elem.style.color = parsed.STATUS === "ERROR" ? "#e63946" : "";
+    });
+
+    const resultBox = card.querySelector(".arm64-card-result");
+    if (resultBox) {
+        resultBox.className = "arm64-result-box arm64-card-result " +
+            (parsed.STATUS === "ERROR" ? "error" : "success");
+        resultBox.textContent = rawText || Object.entries(parsed)
+            .map(([key, value]) => `${key}=${value}`)
+            .join("\n");
+    }
+}
+
+function pintarErrorTarjetaARM64(cardId, message, payload = {}) {
+    const card = getArm64Card(cardId);
+    if (!card) return;
+
+    card.querySelectorAll("[data-arm64-key]").forEach(elem => {
+        const key = elem.getAttribute("data-arm64-key");
+        elem.textContent = key === "STATUS" ? "ERROR" : "--";
+        elem.style.color = key === "STATUS" ? "#e63946" : "";
+    });
+
+    const resultBox = card.querySelector(".arm64-card-result");
+    if (resultBox) {
+        resultBox.className = "arm64-result-box arm64-card-result error";
+        resultBox.textContent = [
+            "STATUS=ERROR",
+            `ERROR=${payload.error || "ERROR"}`,
+            `DETAIL=${message}`
+        ].join("\n");
+    }
+}
+
+async function ejecutarTarjetaARM64(phase, moduleNumber) {
+    renderArm64Cards();
+    const cardId = `${phase}-${moduleNumber}`;
+    const card = getArm64Card(cardId);
+    const config = phase === "fase2"
+        ? ARM64_FASE2_CARDS.find(item => item.number === moduleNumber)
+        : {};
+    const payload = payloadTarjetaARM64(phase, moduleNumber);
+    const validationError = validarPayloadARM64(payload, config || {});
+
+    if (validationError) {
+        pintarErrorTarjetaARM64(cardId, validationError, { error: "VALIDATION_ERROR" });
+        return;
+    }
+
+    const button = card?.querySelector(".arm64-run-btn");
+    const previousText = button ? button.textContent : "";
+
+    if (button) {
+        button.disabled = true;
+        button.textContent = "Ejecutando...";
+    }
+
+    const resultBox = card?.querySelector(".arm64-card-result");
+    if (resultBox) {
+        resultBox.className = "arm64-result-box arm64-card-result loading";
+        resultBox.textContent = "Ejecutando módulo ARM64...";
+    }
+
+    try {
+        const response = await fetch(
+            phase === "fase1" ? "/api/arm64/fase1/run" : "/api/arm64/fase2/run",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            }
+        );
+        const data = await response.json();
+        const parsed = data.data?.parsed || data.parsed || {};
+        const rawText = data.data?.output_text || data.raw_output || "";
+
+        if (!response.ok || !data.ok) {
+            pintarErrorTarjetaARM64(
+                cardId,
+                data.detail || parsed.DETAIL || "El módulo ARM64 no pudo ejecutarse.",
+                data
+            );
+            return;
+        }
+
+        pintarResultadoTarjetaARM64(cardId, parsed, rawText);
+    } catch (error) {
+        pintarErrorTarjetaARM64(cardId, error.message || String(error), {
+            error: "CONNECTION_ERROR"
+        });
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.textContent = previousText;
+        }
+    }
+}
+
+async function ejecutarModulo(moduleNumber) {
+    await ejecutarTarjetaARM64("fase1", moduleNumber);
+}
+
+async function ejecutarModuloFase2(moduleNumber) {
+    await ejecutarTarjetaARM64("fase2", moduleNumber);
+}
+
+async function cargarARM64() {
+    renderArm64Cards();
+}
+
+window.ejecutarModulo = ejecutarModulo;
+window.ejecutarModuloFase2 = ejecutarModuloFase2;
+
+
+// ═══════════════════════════════════════
 // INICIO
 // ═══════════════════════════════════════
 
 // Cuando carga la página, pedir el estado actual al servidor
 window.addEventListener("load", async function() {
+    renderArm64Cards();
     try {
         const respuesta = await fetch("/api/estado");
         const datos     = await respuesta.json();

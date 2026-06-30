@@ -15,7 +15,7 @@
 
         .data
 msg_calc:
-        .ascii "CALC=ANOMALIAS\n"
+        .ascii "CALC=ANOMALIES\n"
         .equ MSG_CALC_LEN, . - msg_calc
 msg_status_ok:
         .ascii "STATUS=OK\n"
@@ -38,6 +38,9 @@ msg_count:
 msg_mean:
         .ascii "MEAN="
         .equ MSG_MEAN_LEN, . - msg_mean
+msg_std_dev:
+        .ascii "STD_DEV="
+        .equ MSG_STD_DEV_LEN, . - msg_std_dev
 msg_anomalies:
         .ascii "ANOMALIES="
         .equ MSG_ANOMALIES_LEN, . - msg_anomalies
@@ -388,6 +391,14 @@ imprimir_ok:
         ldr x0, =msg_mean
         mov x1, #MSG_MEAN_LEN
         ldr x2, =media_guardada
+        ldr x2, [x2]
+        bl escribir_campo_numero
+        bl imprimir_salto
+
+        // esto imprime la desviacion estandar
+        ldr x0, =msg_std_dev
+        mov x1, #MSG_STD_DEV_LEN
+        ldr x2, =desviacion_guardada
         ldr x2, [x2]
         bl escribir_campo_numero
         bl imprimir_salto

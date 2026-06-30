@@ -28,13 +28,13 @@ header_hum_aire:
 col_soil1:
         .asciz "SOIL1"
 header_soil1:
-        .asciz "HUM_SUELO_1"
-        .equ HEADER_SOIL1_LEN, 11
+        .asciz "SOIL1"
+        .equ HEADER_SOIL1_LEN, 5
 col_soil2:
         .asciz "SOIL2"
 header_soil2:
-        .asciz "HUM_SUELO_2"
-        .equ HEADER_SOIL2_LEN, 11
+        .asciz "SOIL2"
+        .equ HEADER_SOIL2_LEN, 5
 col_luz:
         .asciz "LUZ"
 header_luz:

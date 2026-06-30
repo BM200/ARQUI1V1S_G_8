@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import csv
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -20,6 +21,15 @@ ARM64_DIR = PROJECT_DIR / "raspberry" / "arm64"
 ARM64_CSV = ARM64_DIR / "lecturas.csv"
 ARM64_CSV_HEADER = "TEMP,HUM_AIRE,SOIL1,SOIL2,LUZ,GAS"
 ARM64_OLD_CSV_HEADER = "ID,TEMP,HUM_AIRE,HUM_SUELO_1,HUM_SUELO_2,LUZ,GAS,RIEGO_1,RIEGO_2"
+ARM64_CSV_COLUMNS = ARM64_CSV_HEADER.split(",")
+ARM64_OLD_TO_NEW_COLUMNS = {
+    "TEMP": "TEMP",
+    "HUM_AIRE": "HUM_AIRE",
+    "HUM_SUELO_1": "SOIL1",
+    "HUM_SUELO_2": "SOIL2",
+    "LUZ": "LUZ",
+    "GAS": "GAS",
+}
 
 
 @lru_cache(maxsize=1)
@@ -66,6 +76,35 @@ def _resolve_arm64_csv(file_path: str | Path | None) -> Path:
     return candidates[0].resolve()
 
 
+def _migrate_old_arm64_csv(csv_path: Path) -> dict[str, Any] | None:
+    try:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as source:
+            reader = csv.DictReader(source)
+            rows = [
+                {
+                    new_name: (row.get(old_name) or "").strip()
+                    for old_name, new_name in ARM64_OLD_TO_NEW_COLUMNS.items()
+                }
+                for row in reader
+            ]
+
+        with csv_path.open("w", encoding="utf-8", newline="") as target:
+            writer = csv.DictWriter(target, fieldnames=ARM64_CSV_COLUMNS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        print(f"[ARM64 CSV] CSV viejo migrado a formato único: {csv_path}")
+        return None
+    except OSError as exc:
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "CSV_MIGRATION_FAILED",
+            "detail": f"No se pudo migrar el CSV ARM64 viejo: {exc}",
+            "file_path": str(csv_path),
+        }
+
+
 def _validate_arm64_csv(file_path: str | Path | None) -> dict[str, Any] | None:
     csv_path = _resolve_arm64_csv(file_path)
 
@@ -95,16 +134,20 @@ def _validate_arm64_csv(file_path: str | Path | None) -> dict[str, Any] | None:
             "file_path": str(csv_path),
         }
 
+    if header == ARM64_OLD_CSV_HEADER:
+        migration_error = _migrate_old_arm64_csv(csv_path)
+        if migration_error:
+            return migration_error
+        header = ARM64_CSV_HEADER
+
     if header != ARM64_CSV_HEADER:
-        reason = "encabezado viejo" if header == ARM64_OLD_CSV_HEADER else "encabezado inválido"
-        print(f"[ARM64] CSV rechazado por {reason}: {header!r}")
+        print(f"[ARM64] CSV rechazado por encabezado inválido: {header!r}")
         return {
             "ok": False,
             "status": "ERROR",
             "error": "CSV_HEADER_INVALID",
             "detail": (
-                "El CSV ARM64 no fue generado por main.py o tiene encabezado viejo. "
-                f"Esperado: {ARM64_CSV_HEADER}. Ejecuta main.py para regenerarlo."
+                f"El CSV ARM64 debe usar exactamente: {ARM64_CSV_HEADER}."
             ),
             "file_path": str(csv_path),
             "header": header,
@@ -217,6 +260,8 @@ def execute_historical_analysis(
     start_line: int,
     end_line: int,
     column: str,
+    ideal: int | str = 25,
+    k: int | str = 10,
 ) -> dict[str, Any]:
     """Ejecuta el analizador histórico real sin propagar excepciones."""
     try:
@@ -230,6 +275,8 @@ def execute_historical_analysis(
             start_line=start_line,
             end_line=end_line,
             column=column,
+            ideal=ideal,
+            k=k,
             module_name="historical_analyzer",
         )
 

@@ -1,808 +1,972 @@
-
-        .equ BUFFER_SIZE, 1048576
-        .equ BUFFER_READ_MAX, 1048575
-
-        .data
-msg_module:            .ascii "MODULE=HISTORICAL_ANALYZER\n"
-        .equ MSG_MODULE_LEN, . - msg_module
-msg_status_ok:         .ascii "STATUS=OK\n"
-        .equ MSG_STATUS_OK_LEN, . - msg_status_ok
-msg_status_error:      .ascii "STATUS=ERROR\n"
-        .equ MSG_STATUS_ERROR_LEN, . - msg_status_error
-msg_column:            .ascii "COLUMN="
-        .equ MSG_COLUMN_LEN, . - msg_column
-msg_window_start:      .ascii "WINDOW_START="
-        .equ MSG_WINDOW_START_LEN, . - msg_window_start
-msg_window_end:        .ascii "WINDOW_END="
-        .equ MSG_WINDOW_END_LEN, . - msg_window_end
-msg_count:             .ascii "COUNT="
-        .equ MSG_COUNT_LEN, . - msg_count
-msg_min:               .ascii "MIN="
-        .equ MSG_MIN_LEN, . - msg_min
-msg_max:               .ascii "MAX="
-        .equ MSG_MAX_LEN, . - msg_max
-msg_sum:               .ascii "SUM="
-        .equ MSG_SUM_LEN, . - msg_sum
-msg_error_prefix:      .ascii "ERROR="
-        .equ MSG_ERROR_PREFIX_LEN, . - msg_error_prefix
-msg_detail_prefix:     .ascii "DETAIL="
-        .equ MSG_DETAIL_PREFIX_LEN, . - msg_detail_prefix
-msg_newline:           .ascii "\n"
-
-err_invalid_arguments: .ascii "INVALID_ARGUMENTS"
-        .equ ERR_INVALID_ARGUMENTS_LEN, . - err_invalid_arguments
-detail_expected_args:  .ascii "EXPECTED_FILE_START_END_COLUMN"
-        .equ DETAIL_EXPECTED_ARGS_LEN, . - detail_expected_args
-err_invalid_range:     .ascii "INVALID_RANGE"
-        .equ ERR_INVALID_RANGE_LEN, . - err_invalid_range
-detail_start_positive: .ascii "START_LINE_MUST_BE_AT_LEAST_1"
-        .equ DETAIL_START_POSITIVE_LEN, . - detail_start_positive
-detail_end_before:     .ascii "END_LINE_BEFORE_START_LINE"
-        .equ DETAIL_END_BEFORE_LEN, . - detail_end_before
-detail_start_exceeds:  .ascii "START_LINE_EXCEEDS_FILE_LENGTH"
-        .equ DETAIL_START_EXCEEDS_LEN, . - detail_start_exceeds
-detail_end_exceeds:    .ascii "END_LINE_EXCEEDS_FILE_LENGTH"
-        .equ DETAIL_END_EXCEEDS_LEN, . - detail_end_exceeds
-err_invalid_column:    .ascii "INVALID_COLUMN"
-        .equ ERR_INVALID_COLUMN_LEN, . - err_invalid_column
-detail_unknown_column: .ascii "UNKNOWN_SENSOR_COLUMN"
-        .equ DETAIL_UNKNOWN_COLUMN_LEN, . - detail_unknown_column
-detail_column_header:  .ascii "COLUMN_NOT_PRESENT_IN_HEADER"
-        .equ DETAIL_COLUMN_HEADER_LEN, . - detail_column_header
-err_file_not_found:    .ascii "FILE_NOT_FOUND"
-        .equ ERR_FILE_NOT_FOUND_LEN, . - err_file_not_found
-detail_file_not_found: .ascii "INPUT_FILE_COULD_NOT_BE_OPENED"
-        .equ DETAIL_FILE_NOT_FOUND_LEN, . - detail_file_not_found
-err_file_read:         .ascii "FILE_READ_ERROR"
-        .equ ERR_FILE_READ_LEN, . - err_file_read
-detail_file_read:      .ascii "INPUT_FILE_COULD_NOT_BE_READ"
-        .equ DETAIL_FILE_READ_LEN, . - detail_file_read
-err_file_too_large:    .ascii "FILE_TOO_LARGE"
-        .equ ERR_FILE_TOO_LARGE_LEN, . - err_file_too_large
-detail_buffer_limit:   .ascii "INPUT_EXCEEDS_1048575_BYTES"
-        .equ DETAIL_BUFFER_LIMIT_LEN, . - detail_buffer_limit
-err_file_format:       .ascii "INVALID_FILE_FORMAT"
-        .equ ERR_FILE_FORMAT_LEN, . - err_file_format
-detail_missing_header: .ascii "CSV_HEADER_NOT_FOUND"
-        .equ DETAIL_MISSING_HEADER_LEN, . - detail_missing_header
-err_invalid_value:     .ascii "INVALID_VALUE"
-        .equ ERR_INVALID_VALUE_LEN, . - err_invalid_value
-detail_non_numeric:    .ascii "NON_NUMERIC_VALUE"
-        .equ DETAIL_NON_NUMERIC_LEN, . - detail_non_numeric
-err_insufficient:      .ascii "INSUFFICIENT_DATA"
-        .equ ERR_INSUFFICIENT_LEN, . - err_insufficient
-detail_empty_range:    .ascii "EMPTY_RANGE"
-        .equ DETAIL_EMPTY_RANGE_LEN, . - detail_empty_range
-
-col_temp:              .asciz "TEMP"
-header_temp:           .asciz "TEMP"
-        .equ HEADER_TEMP_LEN, 4
-col_hum_aire:          .asciz "HUM_AIRE"
-header_hum_aire:       .asciz "HUM_AIRE"
-        .equ HEADER_HUM_AIRE_LEN, 8
-col_soil1:             .asciz "SOIL1"
-header_soil1:          .asciz "HUM_SUELO_1"
-        .equ HEADER_SOIL1_LEN, 11
-col_soil2:             .asciz "SOIL2"
-header_soil2:          .asciz "HUM_SUELO_2"
-        .equ HEADER_SOIL2_LEN, 11
-col_luz:               .asciz "LUZ"
-header_luz:            .asciz "LUZ"
-        .equ HEADER_LUZ_LEN, 3
-col_gas:               .asciz "GAS"
-header_gas:            .asciz "GAS"
-        .equ HEADER_GAS_LEN, 3
-
-        .bss
-        .balign 8
-file_buffer:           .skip BUFFER_SIZE
-number_buffer:         .skip 64
-start_value:           .skip 8
-end_value:             .skip 8
-selected_column:       .skip 8
-requested_column_ptr:  .skip 8
-requested_column_len:  .skip 8
-expected_header_ptr:   .skip 8
-expected_header_len:   .skip 8
-count_value:           .skip 8
-sum_value:             .skip 8
-min_value:             .skip 8
-max_value:             .skip 8
-
-        .text
-        .global _start
-
-// Inicio del programa. Valida argumentos y prepara el analisis.
-_start:
-        ldr x0, [sp]               // argc
-        cmp x0, #5
-        bne error_invalid_arguments // deben venir 4 argumentos
-
-        ldr x0, [sp, #24]          // argv[2] = linea inicial
-        bl parse_uint              // convierto texto a numero
-        cbz x1, error_start_invalid // si no es numero, error
-        cmp x0, #1
-        blt error_start_invalid    // la primera fila valida es 1
-        ldr x2, =start_value
-        str x0, [x2]
-
-        ldr x0, [sp, #32]          // argv[3] = linea final
-        bl parse_uint              // convierto texto a numero
-        cbz x1, error_end_before_start
-        ldr x2, =end_value
-        str x0, [x2]
-        ldr x3, =start_value
-        ldr x3, [x3]
-        cmp x0, x3
-        blt error_end_before_start // fin no puede ser menor que inicio
-
-        ldr x0, [sp, #40]          // argv[4] = columna pedida
-        ldr x1, =requested_column_ptr
-        str x0, [x1]
-        bl cstrlen                 // guardo longitud para imprimir la columna
-        ldr x1, =requested_column_len
-        str x0, [x1]
-        bl select_requested_column // valido columna logica
-        cbz x0, error_invalid_column // si no existe, error
-
-        mov x0, #-100
-        ldr x1, [sp, #16]          // argv[1] = ruta CSV
-        mov x2, #0
-        mov x3, #0
-        mov x8, #56                // syscall openat
-        svc #0
-        cmp x0, #0
-        blt error_file_not_found
-        mov x18, x0                // descriptor del archivo
-
-        mov x0, x18
-        ldr x1, =file_buffer
-        ldr x2, =BUFFER_READ_MAX
-        mov x8, #63                // syscall read
-        svc #0
-        mov x17, x0                // bytes leidos
-
-        mov x0, x18
-        mov x8, #57                // syscall close
-        svc #0
-
-        cmp x17, #0
-        blt error_file_read
-        beq error_missing_header
-        ldr x9, =BUFFER_READ_MAX
-        cmp x17, x9
-        bge error_file_too_large
-
-        ldr x19, =file_buffer      // cursor dentro del CSV
-        add x20, x19, x17          // fin del buffer
-        bl find_header_column      // busco columna en el encabezado
-        cbz x0, error_column_not_in_header
-        mov x19, x1                // primera fila de datos
-
-        ldr x0, =count_value
-        str xzr, [x0]
-        ldr x0, =sum_value
-        str xzr, [x0]
-        mov x21, #1                // fila actual de datos
-
-// Recorre las filas del CSV.
-row_loop:
-        cmp x19, x20
-        bge end_of_file
-        ldr x0, =end_value
-        ldr x0, [x0]
-        cmp x21, x0
-        bgt finish_success         // ya pase el rango pedido
-        ldr x0, =start_value
-        ldr x0, [x0]
-        cmp x21, x0
-        blt skip_current_row       // aun no llego a la fila inicial
-
-        ldr x0, =selected_column
-        ldr x22, [x0]              // columna que se quiere leer
-        mov x23, #1                // columna actual
-        mov x24, x19               // inicio del campo actual
-        mov x25, x19               // cursor dentro de la fila
-
-// Busca el campo de la columna seleccionada.
-find_field_loop:
-        cmp x25, x20
-        bge field_delimiter_found
-        ldrb w9, [x25]
-        cmp w9, #44                // coma termina campo
-        beq field_delimiter_found
-        cmp w9, #10                // salto de linea termina fila
-        beq field_delimiter_found
-        cmp w9, #13
-        beq field_delimiter_found
-        add x25, x25, #1
-        b find_field_loop
-
-field_delimiter_found:
-        cmp x23, x22
-        beq parse_selected_field   // ya estoy en la columna pedida
-        cmp x25, x20
-        bge error_non_numeric
-        ldrb w9, [x25]
-        cmp w9, #44
-        bne error_non_numeric
-        add x23, x23, #1           // sigo con la siguiente columna
-        add x25, x25, #1
-        mov x24, x25
-        b find_field_loop
-
-// Convierte el campo elegido a numero.
-parse_selected_field:
-        mov x0, x24
-        mov x1, x25
-        bl parse_int_span          // convierte texto del CSV a entero
-        cbz x1, error_non_numeric  // si falla, el campo no es numerico
-        mov x26, x0                // valor leido de la columna
-
-        ldr x9, =count_value
-        ldr x10, [x9]
-        cbnz x10, update_existing_stats
-        ldr x11, =min_value
-        str x26, [x11]             // primer dato tambien es MIN
-        ldr x11, =max_value
-        str x26, [x11]             // primer dato tambien es MAX
-        b update_sum_and_count
-
-// Actualiza MIN y MAX si ya habia datos.
-update_existing_stats:
-        ldr x11, =min_value
-        ldr x12, [x11]
-        cmp x26, x12
-        bge check_maximum
-        str x26, [x11]             // nuevo minimo
-check_maximum:
-        ldr x11, =max_value
-        ldr x12, [x11]
-        cmp x26, x12
-        ble update_sum_and_count
-        str x26, [x11]             // nuevo maximo
-
-// Acumula SUM y COUNT.
-update_sum_and_count:
-        ldr x11, =sum_value
-        ldr x12, [x11]
-        add x12, x12, x26          // SUM += valor
-        str x12, [x11]
-        add x10, x10, #1           // COUNT++
-        str x10, [x9]
-        mov x19, x25
-        b skip_to_next_row
-
-skip_current_row:
-        b skip_to_next_row
-
-// Avanza hasta la siguiente fila.
-skip_to_next_row:
-        cmp x19, x20
-        bge row_finished
-        ldrb w9, [x19], #1
-        cmp w9, #10
-        bne skip_to_next_row
-row_finished:
-        ldr x0, =end_value
-        ldr x0, [x0]
-        cmp x21, x0
-        beq finish_success
-        add x21, x21, #1           // siguiente fila
-        b row_loop
-
-// Revisa si el rango pedido existe cuando se acaba el archivo.
-end_of_file:
-        sub x9, x21, #1            // ultima fila alcanzada
-        ldr x10, =start_value
-        ldr x10, [x10]
-        cmp x10, x9
-        bgt error_start_exceeds_file
-        ldr x10, =end_value
-        ldr x10, [x10]
-        cmp x10, x9
-        bgt error_end_exceeds_file
-        ldr x10, =count_value
-        ldr x10, [x10]
-        cbnz x10, finish_success
-        b error_insufficient_data
-
-// Imprime salida estructurada con los resultados.
-finish_success:
-        ldr x0, =count_value
-        ldr x0, [x0]
-        cbz x0, error_insufficient_data
-        ldr x0, =msg_module
-        mov x1, #MSG_MODULE_LEN
-        bl write_stdout            // MODULE
-        ldr x0, =msg_status_ok
-        mov x1, #MSG_STATUS_OK_LEN
-        bl write_stdout            // STATUS=OK
-        ldr x0, =msg_column
-        mov x1, #MSG_COLUMN_LEN
-        bl write_stdout
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =requested_column_len
-        ldr x1, [x1]
-        bl write_stdout            // columna como la escribio el usuario
-        ldr x0, =msg_newline
-        mov x1, #1
-        bl write_stdout
-        ldr x0, =msg_window_start
-        mov x1, #MSG_WINDOW_START_LEN
-        ldr x2, =start_value
-        ldr x2, [x2]
-        bl write_number_field
-        ldr x0, =msg_window_end
-        mov x1, #MSG_WINDOW_END_LEN
-        ldr x2, =end_value
-        ldr x2, [x2]
-        bl write_number_field
-        ldr x0, =msg_count
-        mov x1, #MSG_COUNT_LEN
-        ldr x2, =count_value
-        ldr x2, [x2]
-        bl write_number_field
-        ldr x0, =msg_min
-        mov x1, #MSG_MIN_LEN
-        ldr x2, =min_value
-        ldr x2, [x2]
-        bl write_number_field
-        ldr x0, =msg_max
-        mov x1, #MSG_MAX_LEN
-        ldr x2, =max_value
-        ldr x2, [x2]
-        bl write_number_field
-        ldr x0, =msg_sum
-        mov x1, #MSG_SUM_LEN
-        ldr x2, =sum_value
-        ldr x2, [x2]
-        bl write_number_field
-        mov x0, #0
-        mov x8, #93
-        svc #0
-
-// Traduce la columna pedida al nombre real del header.
-select_requested_column:
-        stp x29, x30, [sp, #-16]!
-        mov x29, sp
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_temp
-        bl match_cstr              // reviso TEMP
-        cbnz x0, select_temp
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_hum_aire
-        bl match_cstr              // reviso HUM_AIRE
-        cbnz x0, select_hum
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_soil1
-        bl match_cstr              // reviso SOIL1
-        cbnz x0, select_soil1
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_soil2
-        bl match_cstr              // reviso SOIL2
-        cbnz x0, select_soil2
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_luz
-        bl match_cstr              // reviso LUZ
-        cbnz x0, select_luz
-        ldr x0, =requested_column_ptr
-        ldr x0, [x0]
-        ldr x1, =col_gas
-        bl match_cstr              // reviso GAS
-        cbnz x0, select_gas
-        mov x0, #0
-        b select_return
-select_temp:
-        ldr x2, =header_temp
-        mov x3, #HEADER_TEMP_LEN
-        b store_header
-select_hum:
-        ldr x2, =header_hum_aire
-        mov x3, #HEADER_HUM_AIRE_LEN
-        b store_header
-select_soil1:
-        ldr x2, =header_soil1
-        mov x3, #HEADER_SOIL1_LEN
-        b store_header
-select_soil2:
-        ldr x2, =header_soil2
-        mov x3, #HEADER_SOIL2_LEN
-        b store_header
-select_luz:
-        ldr x2, =header_luz
-        mov x3, #HEADER_LUZ_LEN
-        b store_header
-select_gas:
-        ldr x2, =header_gas
-        mov x3, #HEADER_GAS_LEN
-store_header:
-        ldr x4, =expected_header_ptr
-        str x2, [x4]               // guardo header real
-        ldr x4, =expected_header_len
-        str x3, [x4]               // guardo longitud del header
-        mov x0, #1
-select_return:
-        ldp x29, x30, [sp], #16
-        ret
-
-// Busca la columna dentro del encabezado del CSV.
-find_header_column:
-        stp x29, x30, [sp, #-16]!
-        mov x29, sp
-        stp x19, x20, [sp, #-16]!
-        stp x21, x22, [sp, #-16]!
-        stp x23, x24, [sp, #-16]!
-        mov x21, x19               // cursor del header
-        mov x22, x19               // inicio del campo actual
-        mov x23, #1                // numero de columna
-        mov x24, #0                // columna encontrada
-header_scan:
-        cmp x21, x20
-        bge header_not_found
-        ldrb w9, [x21]
-        cmp w9, #44                // coma separa columnas
-        beq header_comma
-        cmp w9, #10                // salto termina header
-        beq header_end
-        cmp w9, #13
-        beq header_end
-        add x21, x21, #1
-        b header_scan
-header_comma:
-        mov x0, x22
-        sub x1, x21, x22
-        ldr x2, =expected_header_ptr
-        ldr x2, [x2]
-        ldr x3, =expected_header_len
-        ldr x3, [x3]
-        bl bytes_equal             // comparo texto del header
-        cbz x0, header_next
-        mov x24, x23
-header_next:
-        add x23, x23, #1           // siguiente columna
-        add x21, x21, #1
-        mov x22, x21
-        b header_scan
-header_end:
-        mov x0, x22
-        sub x1, x21, x22
-        ldr x2, =expected_header_ptr
-        ldr x2, [x2]
-        ldr x3, =expected_header_len
-        ldr x3, [x3]
-        bl bytes_equal             // comparo ultimo campo
-        cbz x0, header_validate
-        mov x24, x23
-header_validate:
-        cbz x24, header_not_found  // no se encontro la columna
-        cmp x21, x20
-        bge header_success
-        ldrb w9, [x21]
-        cmp w9, #13
-        bne header_lf
-        add x21, x21, #1
-header_lf:
-        cmp x21, x20
-        bge header_success
-        ldrb w9, [x21]
-        cmp w9, #10
-        bne header_success
-        add x21, x21, #1
-header_success:
-        ldr x0, =selected_column
-        str x24, [x0]              // guardo columna seleccionada
-        mov x1, x21                // inicio de la primera fila de datos
-        mov x0, #1
-        b header_return
-header_not_found:
-        mov x0, #0
-        mov x1, #0
-header_return:
-        ldp x23, x24, [sp], #16
-        ldp x21, x22, [sp], #16
-        ldp x19, x20, [sp], #16
-        ldp x29, x30, [sp], #16
-        ret
-
-// Convierte argv numerico positivo a entero.
-// Salida: x0 = numero, x1 = 1 valido o 0 invalido.
-parse_uint:
-        mov x2, #0                 // acumulador
-        mov x3, #0                 // cantidad de digitos
-parse_uint_loop:
-        ldrb w4, [x0], #1          // leo caracter y avanzo
-        cbz w4, parse_uint_done
-        cmp w4, #48
-        blt parse_uint_invalid
-        cmp w4, #57
-        bgt parse_uint_invalid
-        mov x5, #10
-        mul x2, x2, x5             // valor = valor * 10
-        sub w4, w4, #48            // ASCII a digito
-        add x2, x2, x4
-        add x3, x3, #1
-        b parse_uint_loop
-parse_uint_done:
-        cbz x3, parse_uint_invalid // no acepta texto vacio
-        mov x0, x2
-        mov x1, #1
-        ret
-parse_uint_invalid:
-        mov x0, #0
-        mov x1, #0
-        ret
-
-// Convierte un campo del CSV a entero con signo.
-// Entrada: x0 = inicio, x1 = fin del campo.
-// Salida: x0 = numero, x1 = 1 valido o 0 invalido.
-parse_int_span:
-        cmp x0, x1
-        bge parse_int_invalid
-        mov x2, #0                 // acumulador
-        mov x3, #0                 // digitos leidos
-        mov x4, #0                 // bandera de negativo
-        ldrb w5, [x0]
-        cmp w5, #45                // signo '-'
-        bne parse_int_loop
-        mov x4, #1
-        add x0, x0, #1
-        cmp x0, x1
-        bge parse_int_invalid
-parse_int_loop:
-        cmp x0, x1
-        bge parse_int_done
-        ldrb w5, [x0], #1
-        cmp w5, #48
-        blt parse_int_invalid
-        cmp w5, #57
-        bgt parse_int_invalid
-        mov x6, #10
-        mul x2, x2, x6             // valor = valor * 10
-        sub w5, w5, #48            // ASCII a digito
-        add x2, x2, x5
-        add x3, x3, #1
-        b parse_int_loop
-parse_int_done:
-        cbz x3, parse_int_invalid
-        cbz x4, parse_int_positive
-        neg x2, x2                 // aplico signo negativo
-parse_int_positive:
-        mov x0, x2
-        mov x1, #1
-        ret
-parse_int_invalid:
-        mov x0, #0
-        mov x1, #0
-        ret
-
-// Compara dos strings terminados en cero.
-match_cstr:
-        ldrb w2, [x0], #1
-        ldrb w3, [x1], #1
-        cmp w2, w3                 // comparo caracter actual
-        bne match_false
-        cbnz w2, match_cstr
-        mov x0, #1
-        ret
-match_false:
-        mov x0, #0
-        ret
-
-// Compara dos textos con longitud conocida.
-bytes_equal:
-        cmp x1, x3                 // si cambia la longitud, no son iguales
-        bne bytes_false
-        mov x4, #0
-bytes_loop:
-        cmp x4, x1
-        bge bytes_true
-        ldrb w5, [x0, x4]          // byte del primer texto
-        ldrb w6, [x2, x4]          // byte del segundo texto
-        cmp w5, w6
-        bne bytes_false
-        add x4, x4, #1
-        b bytes_loop
-bytes_true:
-        mov x0, #1
-        ret
-bytes_false:
-        mov x0, #0
-        ret
-
-// Calcula longitud de string terminado en cero.
-cstrlen:
-        mov x1, x0
-cstrlen_loop:
-        ldrb w2, [x1], #1          // avanzo hasta encontrar cero
-        cbnz w2, cstrlen_loop
-        sub x0, x1, x0
-        sub x0, x0, #1
-        ret
-
-// Escribe texto en stdout.
-// Entrada: x0 = texto, x1 = longitud.
-write_stdout:
-        mov x2, x1                 // cantidad de bytes
-        mov x1, x0                 // direccion del texto
-        mov x0, #1                 // fd 1 = stdout
-        mov x8, #64                // syscall write
-        svc #0
-        ret
-
-// Imprime etiqueta, numero y salto de linea.
-write_number_field:
-        stp x29, x30, [sp, #-16]!
-        mov x29, sp
-        mov x13, x2                // guardo numero mientras imprimo etiqueta
-        bl write_stdout            // imprime ETIQUETA=
-        mov x0, x13
-        bl int_to_ascii            // numero a texto
-        bl write_stdout            // imprime numero
-        ldr x0, =msg_newline
-        mov x1, #1
-        bl write_stdout
-        ldp x29, x30, [sp], #16
-        ret
-
-// Convierte entero con signo a texto ASCII.
-int_to_ascii:
-        ldr x2, =number_buffer
-        add x2, x2, #63            // escribo desde el final del buffer
-        mov x3, #0
-        strb w3, [x2]
-        mov x3, x0
-        mov x4, #0
-        cmp x3, #0
-        bge int_abs_ready
-        mov x4, #1                 // marco signo negativo
-        neg x3, x3                 // convierto usando valor positivo
-int_abs_ready:
-        cmp x3, #0
-        bne int_convert
-        sub x2, x2, #1
-        mov w5, #48
-        strb w5, [x2]
-        b int_sign
-int_convert:
-        cmp x3, #0
-        beq int_sign
-        mov x5, #10
-        udiv x6, x3, x5            // division entera entre 10
-        msub x7, x6, x5, x3        // residuo del digito
-        add x7, x7, #48
-        sub x2, x2, #1
-        strb w7, [x2]
-        mov x3, x6
-        b int_convert
-int_sign:
-        cbz x4, int_done
-        sub x2, x2, #1
-        mov w5, #45                // agrego '-'
-        strb w5, [x2]
-int_done:
-        ldr x1, =number_buffer
-        add x1, x1, #63
-        sub x1, x1, x2
-        mov x0, x2
-        ret
-
-// Imprime errores estructurados.
-emit_error:
-        mov x13, x0                // puntero ERROR
-        mov x14, x1                // longitud ERROR
-        mov x15, x2                // puntero DETAIL
-        mov x16, x3                // longitud DETAIL
-        ldr x0, =msg_module
-        mov x1, #MSG_MODULE_LEN
-        bl write_stdout
-        ldr x0, =msg_status_error
-        mov x1, #MSG_STATUS_ERROR_LEN
-        bl write_stdout
-        ldr x0, =msg_error_prefix
-        mov x1, #MSG_ERROR_PREFIX_LEN
-        bl write_stdout
-        mov x0, x13
-        mov x1, x14
-        bl write_stdout
-        ldr x0, =msg_newline
-        mov x1, #1
-        bl write_stdout
-        ldr x0, =msg_detail_prefix
-        mov x1, #MSG_DETAIL_PREFIX_LEN
-        bl write_stdout
-        mov x0, x15
-        mov x1, x16
-        bl write_stdout
-        ldr x0, =msg_newline
-        mov x1, #1
-        bl write_stdout
-        mov x0, #1
-        mov x8, #93
-        svc #0
-
-// Cada etiqueta prepara ERROR y DETAIL antes de llamar a emit_error.
-error_invalid_arguments:
-        ldr x0, =err_invalid_arguments
-        mov x1, #ERR_INVALID_ARGUMENTS_LEN
-        ldr x2, =detail_expected_args
-        mov x3, #DETAIL_EXPECTED_ARGS_LEN
-        b emit_error
-error_start_invalid:
-        ldr x0, =err_invalid_range
-        mov x1, #ERR_INVALID_RANGE_LEN
-        ldr x2, =detail_start_positive
-        mov x3, #DETAIL_START_POSITIVE_LEN
-        b emit_error
-error_end_before_start:
-        ldr x0, =err_invalid_range
-        mov x1, #ERR_INVALID_RANGE_LEN
-        ldr x2, =detail_end_before
-        mov x3, #DETAIL_END_BEFORE_LEN
-        b emit_error
-error_start_exceeds_file:
-        ldr x0, =err_invalid_range
-        mov x1, #ERR_INVALID_RANGE_LEN
-        ldr x2, =detail_start_exceeds
-        mov x3, #DETAIL_START_EXCEEDS_LEN
-        b emit_error
-error_end_exceeds_file:
-        ldr x0, =err_invalid_range
-        mov x1, #ERR_INVALID_RANGE_LEN
-        ldr x2, =detail_end_exceeds
-        mov x3, #DETAIL_END_EXCEEDS_LEN
-        b emit_error
-error_invalid_column:
-        ldr x0, =err_invalid_column
-        mov x1, #ERR_INVALID_COLUMN_LEN
-        ldr x2, =detail_unknown_column
-        mov x3, #DETAIL_UNKNOWN_COLUMN_LEN
-        b emit_error
-error_column_not_in_header:
-        ldr x0, =err_invalid_column
-        mov x1, #ERR_INVALID_COLUMN_LEN
-        ldr x2, =detail_column_header
-        mov x3, #DETAIL_COLUMN_HEADER_LEN
-        b emit_error
-error_file_not_found:
-        ldr x0, =err_file_not_found
-        mov x1, #ERR_FILE_NOT_FOUND_LEN
-        ldr x2, =detail_file_not_found
-        mov x3, #DETAIL_FILE_NOT_FOUND_LEN
-        b emit_error
-error_file_read:
-        ldr x0, =err_file_read
-        mov x1, #ERR_FILE_READ_LEN
-        ldr x2, =detail_file_read
-        mov x3, #DETAIL_FILE_READ_LEN
-        b emit_error
-error_file_too_large:
-        ldr x0, =err_file_too_large
-        mov x1, #ERR_FILE_TOO_LARGE_LEN
-        ldr x2, =detail_buffer_limit
-        mov x3, #DETAIL_BUFFER_LIMIT_LEN
-        b emit_error
-error_missing_header:
-        ldr x0, =err_file_format
-        mov x1, #ERR_FILE_FORMAT_LEN
-        ldr x2, =detail_missing_header
-        mov x3, #DETAIL_MISSING_HEADER_LEN
-        b emit_error
-error_non_numeric:
-        ldr x0, =err_invalid_value
-        mov x1, #ERR_INVALID_VALUE_LEN
-        ldr x2, =detail_non_numeric
-        mov x3, #DETAIL_NON_NUMERIC_LEN
-        b emit_error
-error_insufficient_data:
-        ldr x0, =err_insufficient
-        mov x1, #ERR_INSUFFICIENT_LEN
-        ldr x2, =detail_empty_range
-        mov x3, #DETAIL_EMPTY_RANGE_LEN
-        b emit_error
+	.arch armv8-a
+	.file	"historical_analyzer_gen.c"
+	.text
+	.align	2
+	.p2align 4,,11
+	.type	local_slope_x100, %function
+local_slope_x100:
+.LFB61:
+	.cfi_startproc
+	adrp	x2, values
+	add	x2, x2, :lo12:values
+	add	x0, x2, x0, lsl 3
+	mov	x1, 0
+	mov	x3, 0
+	mov	x4, 0
+	.p2align 3,,7
+.L2:
+	ldr	x2, [x0, x1, lsl 3]
+	add	x4, x4, x2
+	madd	x3, x2, x1, x3
+	add	x1, x1, 1
+	cmp	x1, 5
+	bne	.L2
+	neg	x0, x4, lsl 2
+	add	x3, x3, x3, lsl 2
+	sub	x0, x0, x4
+	add	x0, x3, x0, lsl 1
+	lsl	x0, x0, 1
+	ret
+	.cfi_endproc
+.LFE61:
+	.size	local_slope_x100, .-local_slope_x100
+	.align	2
+	.p2align 4,,11
+	.type	parse_positive, %function
+parse_positive:
+.LFB55:
+	.cfi_startproc
+	sub	sp, sp, #48
+	.cfi_def_cfa_offset 48
+	adrp	x2, :got:__stack_chk_guard
+	ldr	x2, [x2, :got_lo12:__stack_chk_guard]
+	stp	x29, x30, [sp, 16]
+	.cfi_offset 29, -32
+	.cfi_offset 30, -24
+	add	x29, sp, 16
+	str	x19, [sp, 32]
+	.cfi_offset 19, -16
+	mov	x19, x1
+	ldr	x1, [x2]
+	str	x1, [sp, 8]
+	mov	x1, 0
+	str	xzr, [sp]
+	cbz	x0, .L8
+	ldrb	w1, [x0]
+	cbnz	w1, .L14
+.L8:
+	mov	w0, 0
+.L5:
+	adrp	x1, :got:__stack_chk_guard
+	ldr	x1, [x1, :got_lo12:__stack_chk_guard]
+	ldr	x3, [sp, 8]
+	ldr	x2, [x1]
+	subs	x3, x3, x2
+	mov	x2, 0
+	bne	.L15
+	ldp	x29, x30, [sp, 16]
+	ldr	x19, [sp, 32]
+	add	sp, sp, 48
+	.cfi_remember_state
+	.cfi_restore 29
+	.cfi_restore 30
+	.cfi_restore 19
+	.cfi_def_cfa_offset 0
+	ret
+.L14:
+	.cfi_restore_state
+	mov	x1, sp
+	mov	w2, 10
+	bl	strtol
+	mov	x1, x0
+	ldr	x2, [sp]
+	ldrb	w0, [x2]
+	cmp	w0, 0
+	ccmp	x1, 0, 4, eq
+	ble	.L8
+	mov	w0, 1
+	str	x1, [x19]
+	b	.L5
+.L15:
+	bl	__stack_chk_fail
+	.cfi_endproc
+.LFE55:
+	.size	parse_positive, .-parse_positive
+	.section	.rodata.str1.8,"aMS",@progbits,1
+	.align	3
+.LC0:
+	.string	"STABLE"
+	.align	3
+.LC1:
+	.string	"ASCENDING"
+	.align	3
+.LC2:
+	.string	"DESCENDING"
+	.align	3
+.LC3:
+	.string	"SOIL_TREND_BELOW_IDEAL"
+	.align	3
+.LC4:
+	.string	"CHECK_IRRIGATION"
+	.align	3
+.LC5:
+	.string	"TEMPERATURE_ASCENDING"
+	.align	3
+.LC6:
+	.string	"CHECK_VENTILATION"
+	.align	3
+.LC7:
+	.string	"WINDOW_STABLE"
+	.align	3
+.LC8:
+	.string	"NO_ACTION"
+	.align	3
+.LC9:
+	.string	"GAS_ASCENDING"
+	.align	3
+.LC10:
+	.string	"CHECK_GAS_ALERT"
+	.align	3
+.LC11:
+	.string	"EXPECTED_FILE_START_END_COLUMN_IDEAL_K"
+	.align	3
+.LC12:
+	.string	"INVALID_ARGUMENTS"
+	.align	3
+.LC13:
+	.string	"STATUS=ERROR\nERROR=%s\nDETAIL=%s\n"
+	.align	3
+.LC14:
+	.string	"START_END_RANGE_INVALID"
+	.align	3
+.LC15:
+	.string	"INVALID_RANGE"
+	.align	3
+.LC16:
+	.string	"IDEAL_AND_K_MUST_BE_POSITIVE_INTEGERS"
+	.align	3
+.LC17:
+	.string	"TEMP"
+	.align	3
+.LC18:
+	.string	"HUM_AIRE"
+	.align	3
+.LC19:
+	.string	"SOIL1"
+	.align	3
+.LC20:
+	.string	"SOIL2"
+	.align	3
+.LC21:
+	.string	"LUZ"
+	.align	3
+.LC22:
+	.string	"GAS"
+	.align	3
+.LC23:
+	.string	"UNKNOWN_SENSOR_COLUMN"
+	.align	3
+.LC24:
+	.string	"INVALID_COLUMN"
+	.align	3
+.LC25:
+	.string	"r"
+	.align	3
+.LC26:
+	.string	"INPUT_FILE_COULD_NOT_BE_OPENED"
+	.align	3
+.LC27:
+	.string	"FILE_NOT_FOUND"
+	.align	3
+.LC28:
+	.string	"CSV_HEADER_NOT_FOUND"
+	.align	3
+.LC29:
+	.string	"INVALID_FILE_FORMAT"
+	.align	3
+.LC30:
+	.string	"TEMP,HUM_AIRE,SOIL1,SOIL2,LUZ,GAS"
+	.align	3
+.LC31:
+	.string	"CSV_HEADER_INVALID"
+	.align	3
+.LC32:
+	.string	"WINDOW_EXCEEDS_INTERNAL_BUFFER"
+	.align	3
+.LC33:
+	.string	"RANGE_TOO_LARGE"
+	.align	3
+.LC34:
+	.string	",\r\n"
+	.align	3
+.LC35:
+	.string	"NON_NUMERIC_VALUE_IN_SELECTED_COLUMN"
+	.align	3
+.LC36:
+	.string	"INVALID_VALUE"
+	.align	3
+.LC37:
+	.string	"RANGE_OUTSIDE_FILE"
+	.align	3
+.LC38:
+	.string	"LOCAL_DERIVATIVE_REQUIRES_AT_LEAST_5_VALUES"
+	.align	3
+.LC39:
+	.string	"INSUFFICIENT_DATA"
+	.align	3
+.LC40:
+	.string	"REGRESSION_DENOMINATOR_ZERO"
+	.align	3
+.LC41:
+	.string	"INVALID_REGRESSION"
+	.align	3
+.LC42:
+	.string	"WINDOW_START=%ld\n"
+	.align	3
+.LC43:
+	.string	"WINDOW_END=%ld\n"
+	.align	3
+.LC44:
+	.string	"COLUMN=%s\n"
+	.align	3
+.LC45:
+	.string	"COUNT=%ld\n"
+	.align	3
+.LC46:
+	.string	"IDEAL=%ld\n"
+	.align	3
+.LC47:
+	.string	"RMSE=%ld\n"
+	.align	3
+.LC48:
+	.string	"SLOPE_X100=%ld\n"
+	.align	3
+.LC49:
+	.string	"TREND=%s\n"
+	.align	3
+.LC50:
+	.string	"PREDICTED_%ld=%ld\n"
+	.align	3
+.LC51:
+	.string	"ERROR_INTEGRAL=%ld\n"
+	.align	3
+.LC52:
+	.string	"MAX_LOCAL_SLOPE_X100=%ld\n"
+	.align	3
+.LC53:
+	.string	"MAX_ACCELERATION_X100=%ld\n"
+	.align	3
+.LC54:
+	.string	"RECOMMENDATION=%s\n"
+	.align	3
+.LC55:
+	.string	"REASON=%s\n"
+	.align	3
+.LC56:
+	.string	"STATUS=OK"
+	.align	3
+.LC57:
+	.string	"CALC=HISTORICAL_ANALYZER\n"
+	.section	.text.startup,"ax",@progbits
+	.align	2
+	.p2align 4,,11
+	.global	main
+	.type	main, %function
+main:
+.LFB62:
+	.cfi_startproc
+	stp	x29, x30, [sp, -96]!
+	.cfi_def_cfa_offset 96
+	.cfi_offset 29, -96
+	.cfi_offset 30, -88
+	mov	x13, 4208
+	mov	x29, sp
+	stp	x19, x20, [sp, 16]
+	stp	x21, x22, [sp, 32]
+	sub	sp, sp, x13
+	.cfi_def_cfa_offset 4304
+	.cfi_offset 19, -80
+	.cfi_offset 20, -72
+	.cfi_offset 21, -64
+	.cfi_offset 22, -56
+	str	xzr, [sp, 1024]
+	adrp	x2, :got:__stack_chk_guard
+	ldr	x2, [x2, :got_lo12:__stack_chk_guard]
+	mov	x19, x1
+	ldr	x1, [x2]
+	str	x1, [sp, 4200]
+	mov	x1, 0
+	cmp	w0, 7
+	beq	.L17
+	adrp	x3, .LC11
+	adrp	x2, .LC12
+	adrp	x1, .LC13
+	add	x3, x3, :lo12:.LC11
+	add	x2, x2, :lo12:.LC12
+	add	x1, x1, :lo12:.LC13
+	mov	w0, 2
+	bl	__printf_chk
+.L18:
+	mov	w22, 1
+.L16:
+	adrp	x0, :got:__stack_chk_guard
+	ldr	x0, [x0, :got_lo12:__stack_chk_guard]
+	ldr	x2, [sp, 4200]
+	ldr	x1, [x0]
+	subs	x2, x2, x1
+	mov	x1, 0
+	bne	.L104
+	mov	x13, 4208
+	add	sp, sp, x13
+	.cfi_remember_state
+	.cfi_def_cfa_offset 96
+	mov	w0, w22
+	ldp	x19, x20, [sp, 16]
+	ldp	x21, x22, [sp, 32]
+	ldp	x29, x30, [sp], 96
+	.cfi_restore 30
+	.cfi_restore 29
+	.cfi_restore 21
+	.cfi_restore 22
+	.cfi_restore 19
+	.cfi_restore 20
+	.cfi_def_cfa_offset 0
+	ret
+.L17:
+	.cfi_restore_state
+	ldp	x20, x0, [x19, 8]
+	add	x1, sp, 56
+	str	x27, [sp, 4288]
+	.cfi_offset 27, -16
+	ldr	x27, [x19, 32]
+	str	x28, [sp, 4296]
+	.cfi_offset 28, -8
+	bl	parse_positive
+	cbz	w0, .L21
+	ldr	x0, [x19, 24]
+	add	x1, sp, 64
+	bl	parse_positive
+	cbz	w0, .L21
+	str	x25, [sp, 4272]
+	.cfi_offset 25, -32
+	str	x26, [sp, 4280]
+	.cfi_offset 26, -24
+	ldp	x25, x26, [sp, 56]
+	cmp	x26, x25
+	bge	.L105
+	ldr	x25, [sp, 4272]
+	.cfi_restore 25
+	ldr	x26, [sp, 4280]
+	.cfi_restore 26
+.L21:
+	adrp	x3, .LC14
+	adrp	x2, .LC15
+	add	x3, x3, :lo12:.LC14
+	add	x2, x2, :lo12:.LC15
+	adrp	x1, .LC13
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC13
+	bl	__printf_chk
+	ldr	x27, [sp, 4288]
+	.cfi_restore 27
+	ldr	x28, [sp, 4296]
+	.cfi_restore 28
+	b	.L18
+.L105:
+	.cfi_offset 25, -32
+	.cfi_offset 26, -24
+	.cfi_offset 27, -16
+	.cfi_offset 28, -8
+	ldr	x0, [x19, 40]
+	add	x1, sp, 72
+	bl	parse_positive
+	cbz	w0, .L23
+	ldr	x0, [x19, 48]
+	add	x1, sp, 80
+	bl	parse_positive
+	cbz	w0, .L23
+	mov	x0, x27
+	adrp	x1, .LC17
+	add	x1, x1, :lo12:.LC17
+	bl	strcmp
+	mov	w19, w0
+	cbz	w0, .L24
+	adrp	x1, .LC18
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC18
+	bl	strcmp
+	cbz	w0, .L62
+	adrp	x1, .LC19
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC19
+	bl	strcmp
+	cbz	w0, .L63
+	adrp	x1, .LC20
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC20
+	bl	strcmp
+	cbz	w0, .L64
+	adrp	x1, .LC21
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC21
+	bl	strcmp
+	cbz	w0, .L65
+	mov	x0, x27
+	adrp	x1, .LC22
+	mov	w19, 5
+	add	x1, x1, :lo12:.LC22
+	bl	strcmp
+	cbnz	w0, .L106
+.L24:
+	mov	x0, x20
+	adrp	x1, .LC25
+	add	x1, x1, :lo12:.LC25
+	bl	fopen
+	str	x0, [sp, 8]
+	cbz	x0, .L107
+	ldr	x2, [sp, 8]
+	add	x0, sp, 104
+	mov	w1, 4096
+	str	x0, [sp]
+	bl	fgets
+	cbz	x0, .L108
+	ldr	x0, [sp]
+	adrp	x1, .LC30
+	mov	x2, 33
+	add	x1, x1, :lo12:.LC30
+	bl	strncmp
+	mov	w22, w0
+	cbnz	w0, .L109
+	adrp	x20, .LC34
+	add	x21, sp, 88
+	add	x20, x20, :lo12:.LC34
+	add	x0, sp, 96
+	str	x0, [sp, 40]
+	str	x23, [sp, 4256]
+	.cfi_offset 23, -48
+	mov	x23, 0
+	str	x24, [sp, 4264]
+	.cfi_offset 24, -40
+	mov	x24, 0
+.L27:
+	ldp	x0, x2, [sp]
+	mov	w1, 4096
+	bl	fgets
+	cbz	x0, .L29
+	add	x23, x23, 1
+	cmp	x25, x23
+	bgt	.L27
+	cmp	x26, x23
+	blt	.L29
+	mov	x0, 8191
+	cmp	x24, x0
+	bgt	.L110
+	ldr	x0, [sp]
+	mov	x2, x21
+	mov	x1, x20
+	str	xzr, [sp, 88]
+	bl	strtok_r
+	cbz	x0, .L32
+	cbz	w19, .L33
+	mov	w28, 0
+	b	.L34
+	.p2align 2,,3
+.L39:
+	cmp	w28, w19
+	beq	.L33
+.L34:
+	add	w28, w28, 1
+	mov	x2, x21
+	mov	x1, x20
+	mov	x0, 0
+	bl	strtok_r
+	cbnz	x0, .L39
+.L32:
+	ldr	x0, [sp, 8]
+	bl	fclose
+	adrp	x3, .LC35
+	adrp	x2, .LC36
+	add	x3, x3, :lo12:.LC35
+	add	x2, x2, :lo12:.LC36
+.L101:
+	adrp	x1, .LC13
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC13
+	bl	__printf_chk
+	ldr	x23, [sp, 4256]
+	.cfi_restore 23
+	ldr	x24, [sp, 4264]
+	.cfi_restore 24
+	ldr	x25, [sp, 4272]
+	.cfi_restore 25
+	ldr	x26, [sp, 4280]
+	.cfi_restore 26
+	ldr	x27, [sp, 4288]
+	.cfi_restore 27
+	ldr	x28, [sp, 4296]
+	.cfi_restore 28
+	b	.L18
+.L23:
+	.cfi_offset 25, -32
+	.cfi_offset 26, -24
+	.cfi_offset 27, -16
+	.cfi_offset 28, -8
+	adrp	x3, .LC16
+	adrp	x2, .LC12
+	add	x3, x3, :lo12:.LC16
+	add	x2, x2, :lo12:.LC12
+.L102:
+	adrp	x1, .LC13
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC13
+	bl	__printf_chk
+	ldr	x25, [sp, 4272]
+	.cfi_restore 25
+	ldr	x26, [sp, 4280]
+	.cfi_restore 26
+	ldr	x27, [sp, 4288]
+	.cfi_restore 27
+	ldr	x28, [sp, 4296]
+	.cfi_restore 28
+	b	.L18
+.L33:
+	.cfi_offset 23, -48
+	.cfi_offset 24, -40
+	.cfi_offset 25, -32
+	.cfi_offset 26, -24
+	.cfi_offset 27, -16
+	.cfi_offset 28, -8
+	ldr	x1, [sp, 40]
+	mov	w2, 10
+	str	xzr, [sp, 96]
+	bl	strtol
+	mov	x4, x0
+	ldr	x2, [sp, 96]
+	str	x2, [sp, 24]
+	ldrb	w1, [x2]
+	str	w1, [sp, 16]
+	cbz	w1, .L35
+	str	x0, [sp, 32]
+	bl	__ctype_b_loc
+	ldp	x2, x4, [sp, 24]
+	ldr	x3, [x0]
+	ldr	w1, [sp, 16]
+	add	x2, x2, 1
+	b	.L36
+	.p2align 2,,3
+.L37:
+	str	x2, [sp, 96]
+	ldrb	w1, [x2], 1
+	cbz	w1, .L35
+.L36:
+	ubfiz	x1, x1, 1, 8
+	ldrh	w1, [x3, x1]
+	tbnz	x1, 13, .L37
+	b	.L32
+.L35:
+	adrp	x1, values
+	add	x1, x1, :lo12:values
+	str	x4, [x1, x24, lsl 3]
+	add	x24, x24, 1
+	b	.L27
+.L29:
+	ldr	x0, [sp, 8]
+	bl	fclose
+	cmp	x26, x25
+	csel	x0, x26, x25, ge
+	cmp	x24, 0
+	ccmp	x23, x0, 1, gt
+	bge	.L42
+	adrp	x3, .LC37
+	adrp	x2, .LC15
+	add	x3, x3, :lo12:.LC37
+	add	x2, x2, :lo12:.LC15
+	b	.L101
+.L106:
+	.cfi_restore 23
+	.cfi_restore 24
+	adrp	x3, .LC23
+	adrp	x2, .LC24
+	add	x3, x3, :lo12:.LC23
+	add	x2, x2, :lo12:.LC24
+	b	.L102
+.L62:
+	mov	w19, 1
+	b	.L24
+.L109:
+	ldr	x0, [sp, 8]
+	bl	fclose
+	adrp	x3, .LC31
+	adrp	x2, .LC29
+	add	x3, x3, :lo12:.LC31
+	add	x2, x2, :lo12:.LC29
+	b	.L102
+.L42:
+	.cfi_offset 23, -48
+	.cfi_offset 24, -40
+	cmp	x24, 4
+	ble	.L111
+	adrp	x0, values
+	add	x9, x0, :lo12:values
+	ldr	x20, [sp, 72]
+	mov	x1, 1
+	ldr	x8, [x0, #:lo12:values]
+	mov	x21, 0
+	mov	x7, 0
+	mov	x5, 0
+	sub	x0, x8, x20
+	mov	x6, 0
+	mul	x3, x0, x0
+.L44:
+	ldr	x2, [x9, 8]!
+	cmp	x0, 0
+	csneg	x10, x0, x0, ge
+	madd	x5, x1, x1, x5
+	subs	x0, x2, x20
+	add	x6, x6, x1
+	csneg	x4, x0, x0, pl
+	madd	x7, x2, x1, x7
+	add	x4, x4, x10
+	add	x1, x1, 1
+	madd	x3, x0, x0, x3
+	add	x8, x8, x2
+	add	x21, x21, x4, asr 1
+	cmp	x24, x1
+	bne	.L44
+	mul	x1, x24, x5
+	msub	x1, x6, x6, x1
+	cbz	x1, .L112
+	mul	x19, x24, x7
+	mov	x2, 100
+	msub	x19, x8, x6, x19
+	mov	x23, 1073741824
+	ldr	x0, [sp, 80]
+	str	x0, [sp, 24]
+	mul	x8, x8, x2
+	mul	x19, x19, x2
+	add	x5, x0, x24
+	sdiv	x0, x3, x24
+	sdiv	x3, x19, x1
+	msub	x1, x3, x6, x8
+	sdiv	x1, x1, x24
+	madd	x1, x5, x3, x1
+	sdiv	x1, x1, x2
+	stp	x3, x1, [sp, 8]
+	b	.L46
+.L47:
+	asr	x23, x23, 2
+.L46:
+	cmp	x0, x23
+	blt	.L47
+	mov	x28, 0
+.L48:
+	cbz	x23, .L113
+	add	x1, x28, x23
+	asr	x28, x28, 1
+	cmp	x1, x0
+	bgt	.L49
+	sub	x0, x0, x1
+	add	x28, x28, x23
+.L49:
+	asr	x23, x23, 2
+	b	.L48
+.L110:
+	ldr	x0, [sp, 8]
+	bl	fclose
+	adrp	x3, .LC32
+	adrp	x2, .LC33
+	add	x3, x3, :lo12:.LC32
+	add	x2, x2, :lo12:.LC33
+	b	.L101
+.L63:
+	.cfi_restore 23
+	.cfi_restore 24
+	mov	w19, 2
+	b	.L24
+.L108:
+	ldr	x0, [sp, 8]
+	bl	fclose
+	adrp	x3, .LC28
+	adrp	x2, .LC29
+	add	x3, x3, :lo12:.LC28
+	add	x2, x2, :lo12:.LC29
+	b	.L102
+.L64:
+	mov	w19, 3
+	b	.L24
+.L113:
+	.cfi_offset 23, -48
+	.cfi_offset 24, -40
+	mov	x0, 0
+	sub	x9, x24, #4
+	bl	local_slope_x100
+	mov	x6, 1
+	mov	x19, x0
+	mov	x7, x0
+	b	.L51
+.L53:
+	mov	x0, x6
+	bl	local_slope_x100
+	subs	x1, x0, x7
+	add	x6, x6, 1
+	csneg	x1, x1, x1, pl
+	cmp	x19, 0
+	csneg	x8, x19, x19, ge
+	cmp	x0, 0
+	csneg	x2, x0, x0, ge
+	mov	x7, x0
+	cmp	x8, x2
+	csel	x19, x19, x0, ge
+	cmp	x23, x1
+	csel	x23, x23, x1, ge
+.L51:
+	cmp	x9, x6
+	bgt	.L53
+	mov	x0, x27
+	adrp	x1, .LC19
+	add	x1, x1, :lo12:.LC19
+	bl	strcmp
+	ldr	x1, [sp, 8]
+	cmp	x1, 0
+	ble	.L114
+	adrp	x1, .LC1
+	add	x1, x1, :lo12:.LC1
+	str	x1, [sp]
+.L54:
+	cbz	w0, .L56
+	adrp	x1, .LC20
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC20
+	bl	strcmp
+	cbz	w0, .L56
+.L57:
+	adrp	x0, .LC17
+	add	x1, x0, :lo12:.LC17
+	mov	x0, x27
+	bl	strcmp
+	ldr	x2, [sp]
+	adrp	x1, .LC1
+	add	x1, x1, :lo12:.LC1
+	cmp	x2, x1
+	cset	w2, eq
+	str	w2, [sp, 32]
+	cmp	w0, 0
+	ccmp	w2, 0, 4, eq
+	bne	.L71
+	mov	x0, x27
+	adrp	x1, .LC22
+	add	x1, x1, :lo12:.LC22
+	bl	strcmp
+	ldr	w2, [sp, 32]
+	cmp	w0, 0
+	ccmp	w2, 0, 4, eq
+	bne	.L72
+.L59:
+	adrp	x1, .LC57
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC57
+	bl	__printf_chk
+	adrp	x6, .LC7
+	adrp	x7, .LC8
+	add	x6, x6, :lo12:.LC7
+	add	x7, x7, :lo12:.LC8
+.L58:
+	mov	x2, x25
+	adrp	x1, .LC42
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC42
+	stp	x7, x6, [sp, 32]
+	bl	__printf_chk
+	mov	x2, x26
+	adrp	x1, .LC43
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC43
+	bl	__printf_chk
+	mov	x2, x27
+	adrp	x1, .LC44
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC44
+	bl	__printf_chk
+	mov	x2, x24
+	adrp	x1, .LC45
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC45
+	bl	__printf_chk
+	mov	x2, x20
+	adrp	x1, .LC46
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC46
+	bl	__printf_chk
+	mov	x2, x28
+	adrp	x1, .LC47
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC47
+	bl	__printf_chk
+	ldr	x2, [sp, 8]
+	adrp	x1, .LC48
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC48
+	bl	__printf_chk
+	ldr	x2, [sp]
+	adrp	x1, .LC49
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC49
+	bl	__printf_chk
+	ldp	x3, x2, [sp, 16]
+	adrp	x1, .LC50
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC50
+	bl	__printf_chk
+	mov	x2, x21
+	adrp	x1, .LC51
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC51
+	bl	__printf_chk
+	mov	x2, x19
+	adrp	x1, .LC52
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC52
+	bl	__printf_chk
+	mov	x2, x23
+	adrp	x1, .LC53
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC53
+	bl	__printf_chk
+	ldr	x7, [sp, 32]
+	adrp	x1, .LC54
+	mov	w0, 2
+	add	x1, x1, :lo12:.LC54
+	mov	x2, x7
+	bl	__printf_chk
+	ldr	x6, [sp, 40]
+	adrp	x1, .LC55
+	add	x1, x1, :lo12:.LC55
+	mov	w0, 2
+	mov	x2, x6
+	bl	__printf_chk
+	adrp	x0, .LC56
+	add	x0, x0, :lo12:.LC56
+	bl	puts
+	ldr	x23, [sp, 4256]
+	.cfi_restore 23
+	ldr	x24, [sp, 4264]
+	.cfi_restore 24
+	ldr	x25, [sp, 4272]
+	.cfi_restore 25
+	ldr	x26, [sp, 4280]
+	.cfi_restore 26
+	ldr	x27, [sp, 4288]
+	.cfi_restore 27
+	ldr	x28, [sp, 4296]
+	.cfi_restore 28
+	b	.L16
+.L65:
+	.cfi_offset 25, -32
+	.cfi_offset 26, -24
+	.cfi_offset 27, -16
+	.cfi_offset 28, -8
+	mov	w19, 4
+	b	.L24
+.L56:
+	.cfi_offset 23, -48
+	.cfi_offset 24, -40
+	ldr	x1, [sp]
+	adrp	x0, .LC2
+	add	x0, x0, :lo12:.LC2
+	cmp	x1, x0
+	ldr	x0, [sp, 16]
+	ccmp	x20, x0, 0, ne
+	ble	.L59
+	adrp	x6, .LC3
+	adrp	x7, .LC4
+	add	x6, x6, :lo12:.LC3
+	add	x7, x7, :lo12:.LC4
+	b	.L58
+.L112:
+	adrp	x3, .LC40
+	adrp	x2, .LC41
+	add	x3, x3, :lo12:.LC40
+	add	x2, x2, :lo12:.LC41
+	b	.L101
+.L114:
+	bne	.L55
+	adrp	x1, .LC0
+	add	x1, x1, :lo12:.LC0
+	str	x1, [sp]
+	b	.L54
+.L111:
+	adrp	x3, .LC38
+	adrp	x2, .LC39
+	add	x3, x3, :lo12:.LC38
+	add	x2, x2, :lo12:.LC39
+	b	.L101
+.L55:
+	cbz	w0, .L74
+	adrp	x1, .LC20
+	mov	x0, x27
+	add	x1, x1, :lo12:.LC20
+	bl	strcmp
+	cbz	w0, .L74
+	adrp	x0, .LC2
+	add	x0, x0, :lo12:.LC2
+	str	x0, [sp]
+	b	.L57
+.L104:
+	.cfi_restore 23
+	.cfi_restore 24
+	.cfi_restore 25
+	.cfi_restore 26
+	.cfi_restore 27
+	.cfi_restore 28
+	str	x23, [sp, 4256]
+	.cfi_offset 23, -48
+	str	x24, [sp, 4264]
+	.cfi_offset 24, -40
+	str	x25, [sp, 4272]
+	.cfi_offset 25, -32
+	str	x26, [sp, 4280]
+	.cfi_offset 26, -24
+	str	x27, [sp, 4288]
+	.cfi_offset 27, -16
+	str	x28, [sp, 4296]
+	.cfi_offset 28, -8
+	bl	__stack_chk_fail
+.L74:
+	adrp	x0, .LC2
+	adrp	x6, .LC3
+	add	x0, x0, :lo12:.LC2
+	adrp	x7, .LC4
+	add	x6, x6, :lo12:.LC3
+	add	x7, x7, :lo12:.LC4
+	str	x0, [sp]
+	b	.L58
+.L71:
+	adrp	x6, .LC5
+	adrp	x7, .LC6
+	add	x6, x6, :lo12:.LC5
+	add	x7, x7, :lo12:.LC6
+	b	.L58
+.L72:
+	adrp	x6, .LC9
+	adrp	x7, .LC10
+	add	x6, x6, :lo12:.LC9
+	add	x7, x7, :lo12:.LC10
+	b	.L58
+.L107:
+	.cfi_restore 23
+	.cfi_restore 24
+	adrp	x3, .LC26
+	adrp	x2, .LC27
+	add	x3, x3, :lo12:.LC26
+	add	x2, x2, :lo12:.LC27
+	b	.L102
+	.cfi_endproc
+.LFE62:
+	.size	main, .-main
+	.bss
+	.align	4
+	.type	values, %object
+	.size	values, 65536
+values:
+	.zero	65536
+	.section	.note.GNU-stack,"",@progbits

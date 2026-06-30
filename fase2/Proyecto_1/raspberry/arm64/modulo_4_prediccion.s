@@ -15,7 +15,7 @@
 
         .data
 msg_calc:
-        .ascii "CALC=PREDICCION\n"
+        .ascii "CALC=LINEAR_PREDICTION\n"
         .equ MSG_CALC_LEN, . - msg_calc
 msg_status_ok:
         .ascii "STATUS=OK\n"

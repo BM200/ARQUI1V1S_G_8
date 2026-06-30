@@ -16,7 +16,7 @@
 
         .data
 msg_calc:
-        .ascii "CALC=MEDIA\n"
+        .ascii "CALC=MEAN\n"
         .equ MSG_CALC_LEN, . - msg_calc
 msg_status_ok:
         .ascii "STATUS=OK\n"

@@ -42,9 +42,9 @@ HISTORICAL_COLUMNS = {
     "GAS",
 }
 FASE2_MODULES = {
-    1: "modulo_rmse",
+    1: "modulo_1_rmse",
     2: "modulo_2_regresion",
-    3: "modulo_3_prediccion",
+    3: "modulo_3_prediccion_futura",
     4: "modulo_4_integral_error",
     5: "modulo_5_derivada_local",
 }
@@ -101,6 +101,7 @@ def resolve_historical_file_path(file_path):
         candidates = [path]
     else:
         candidates = [
+            PROJECT_DIR / "raspberry" / "arm64" / path,
             WORKSPACE_DIR / path,
             PROJECT_DIR / path,
         ]
@@ -657,6 +658,8 @@ def run_arm64_historical():
     start_line_raw = datos.get("start_line")
     end_line_raw = datos.get("end_line")
     column_raw = datos.get("column")
+    ideal = datos.get("ideal", 25)
+    k = datos.get("k", 10)
 
     if not isinstance(file_path, str) or not file_path.strip():
         return jsonify({
@@ -732,6 +735,8 @@ def run_arm64_historical():
         start_line=start_line,
         end_line=end_line,
         column=column,
+        ideal=ideal,
+        k=k,
     )
 
     if not resultado.get("ok"):
