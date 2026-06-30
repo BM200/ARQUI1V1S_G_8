@@ -15,7 +15,7 @@
 
         .data
 msg_calc:
-        .ascii "CALC=TENDENCIA\n"
+        .ascii "CALC=ACCUMULATED_TREND\n"
         .equ MSG_CALC_LEN, . - msg_calc
 msg_status_ok:
         .ascii "STATUS=OK\n"

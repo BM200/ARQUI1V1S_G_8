@@ -55,7 +55,7 @@ FASE1_COLUMN_MAP = {
 
 FASE2_MODULES = {
     1: {
-        "module_name": "modulo_rmse",
+        "module_name": "modulo_1_rmse",
         "requires_ideal": True,
         "requires_k": False,
     },
@@ -65,7 +65,7 @@ FASE2_MODULES = {
         "requires_k": False,
     },
     3: {
-        "module_name": "modulo_3_prediccion",
+        "module_name": "modulo_3_prediccion_futura",
         "requires_ideal": False,
         "requires_k": True,
     },
@@ -845,96 +845,17 @@ def run_fase2_module(
     return result
 
 
-def _historical_ideal_for_column(column: str) -> int:
-    ideals = {
-        "SOIL1": 55,
-        "SOIL2": 55,
-        "TEMP": 25,
-        "HUM_AIRE": 70,
-        "LUZ": 300,
-        "GAS": 200,
-    }
-    return ideals.get(str(column).upper(), 25)
-
-
-def _int_from_parsed(parsed: dict[str, Any], key: str, default: int = 0) -> int:
-    try:
-        return int(float(parsed.get(key, default)))
-    except (TypeError, ValueError):
-        return default
-
-
-def _historical_failure_result(
-    module_name: str,
-    result: dict[str, Any],
-    file_path: str,
-    start_line: int,
-    end_line: int,
-    column: str,
-) -> dict[str, Any]:
-    detail = result.get("detail") or result.get("error") or "module failed"
-    parsed = {
-        "STATUS": "ERROR",
-        "ERROR": "MODULE_FAILED",
-        "DETAIL": f"{module_name} failed: {detail}",
-    }
-    output_text = _format_key_value_output(parsed)
-    return {
-        "ok": False,
-        "status": "ERROR",
-        "error": "MODULE_FAILED",
-        "detail": parsed["DETAIL"],
-        "analysis_type": "historical_combined",
-        "file_path": str(file_path),
-        "start_line": start_line,
-        "end_line": end_line,
-        "column": column,
-        "output_text": output_text,
-        "raw_output": output_text,
-        "parsed": parsed,
-        "module_results": {module_name: result},
-    }
-
-
-def _format_key_value_output(parsed: dict[str, Any]) -> str:
-    return "\n".join(f"{key}={value}" for key, value in parsed.items())
-
-
-def _historical_recommendation(column: str, predicted_10: int, ideal: int, trend: str) -> str:
-    if column == "SOIL1" and predicted_10 < ideal:
-        return "RIEGO_PREVENTIVO_AREA_1"
-    if column == "SOIL2" and predicted_10 < ideal:
-        return "RIEGO_PREVENTIVO_AREA_2"
-    if column == "TEMP" and trend == "ASCENDING":
-        return "ACTIVAR_VENTILACION_PREVENTIVA"
-    if column == "GAS" and trend == "ASCENDING":
-        return "ALERTA_GAS_PREVENTIVA"
-    return "SIN_ACCION_PREVENTIVA"
-
-
-def _historical_reason(rmse: int, predicted_10: int, ideal: int, trend: str) -> str:
-    rmse_high = rmse >= max(10, ideal // 4)
-    prediction_low = predicted_10 < ideal
-    reliable_trend = trend in {"ASCENDING", "DESCENDING"}
-
-    if rmse_high and prediction_low and reliable_trend:
-        return "RMSE_ALTO_PREDICCION_BAJA_TENDENCIA_CONFIABLE"
-    if trend == "ASCENDING":
-        return "TENDENCIA_ASCENDENTE"
-    if trend == "DESCENDING":
-        return "TENDENCIA_DESCENDENTE"
-    return "CONDICION_ESTABLE"
-
-
 def run_historical_analysis(
     file_path: str,
     start_line: int,
     end_line: int,
     column: str,
     module_name: str,
+    ideal: int | str = 25,
+    k: int | str = 10,
     timeout: int | float = 15,
 ) -> dict[str, Any]:
-    """Ejecuta el análisis histórico combinado con módulos Fase 2."""
+    """Ejecuta el analizador histórico ARM64 completo sin cálculos Python."""
     if module_name != "historical_analyzer":
         return {
             "ok": False,
@@ -944,13 +865,25 @@ def run_historical_analysis(
             "module": module_name,
         }
 
+    logical_column = _normalize_fase1_column(column)
+    if logical_column is None:
+        return {
+            "ok": False,
+            "status": "ERROR",
+            "error": "INVALID_COLUMN",
+            "detail": "column must be 2..7 or TEMP, HUM_AIRE, SOIL1, SOIL2, LUZ, GAS",
+            "column": column,
+        }
+
     result = run_arm64_module(
         module_name=module_name,
         args=[
             str(file_path),
             str(start_line),
             str(end_line),
-            str(column),
+            str(logical_column),
+            str(ideal),
+            str(k),
         ],
         timeout=timeout,
         result_file=None,
@@ -964,18 +897,20 @@ def run_historical_analysis(
 
     result.update(
         {
-            "analysis_type": "historical",
+            "analysis_type": "historical_arm64",
             "file_path": str(file_path),
             "start_line": start_line,
             "end_line": end_line,
-            "column": column,
+            "column": logical_column,
+            "ideal": ideal,
+            "k": k,
             "output_text": output_text,
+            "raw_output": output_text,
             "parsed": parsed,
         }
     )
 
     parsed_status = parsed.get("STATUS")
-
     if parsed_status == "ERROR":
         result.update(
             {
@@ -994,99 +929,7 @@ def run_historical_analysis(
         return result
 
     if parsed_status == "OK" and result.get("returncode") == 0:
-        logical_column = _normalize_fase1_column(column)
-        ideal = _historical_ideal_for_column(str(logical_column or column).upper())
-        historical_k = 10
-
-        module_results: dict[str, dict[str, Any]] = {
-            "historical_analyzer": {
-                "ok": result.get("ok"),
-                "status": result.get("status"),
-                "output_text": result.get("output_text", ""),
-                "parsed": dict(parsed),
-            },
-        }
-
-        fase2_requests = [
-            ("modulo_rmse", 1, {"ideal": ideal, "k": historical_k}),
-            ("modulo_2_regresion", 2, {"ideal": ideal, "k": historical_k}),
-            ("modulo_3_prediccion", 3, {"ideal": ideal, "k": historical_k}),
-            ("modulo_4_integral_error", 4, {"ideal": ideal, "k": historical_k}),
-            ("modulo_5_derivada_local", 5, {"ideal": ideal, "k": historical_k}),
-        ]
-
-        for current_module_name, current_module_number, extra_args in fase2_requests:
-            module_result = run_fase2_module(
-                module_number=current_module_number,
-                module_name=current_module_name,
-                file_path=file_path,
-                start_line=start_line,
-                end_line=end_line,
-                column=logical_column or column,
-                ideal=extra_args["ideal"],
-                k=extra_args["k"],
-            )
-            module_results[current_module_name] = module_result
-
-            if not module_result.get("ok"):
-                return _historical_failure_result(
-                    current_module_name,
-                    module_result,
-                    file_path,
-                    start_line,
-                    end_line,
-                    str(logical_column or column),
-                )
-
-        rmse_parsed = module_results["modulo_rmse"].get("parsed", {})
-        regression_parsed = module_results["modulo_2_regresion"].get("parsed", {})
-        prediction_parsed = module_results["modulo_3_prediccion"].get("parsed", {})
-        integral_parsed = module_results["modulo_4_integral_error"].get("parsed", {})
-        derivative_parsed = module_results["modulo_5_derivada_local"].get("parsed", {})
-
-        prediction_key = f"PREDICTED_{historical_k}"
-        predicted_10 = _int_from_parsed(prediction_parsed, prediction_key)
-        rmse = _int_from_parsed(rmse_parsed, "RMSE")
-        trend = str(regression_parsed.get("TREND", "STABLE"))
-        final_column = str(logical_column or column).upper()
-
-        combined_parsed = {
-            "WINDOW_START": str(start_line),
-            "WINDOW_END": str(end_line),
-            "COLUMN": final_column,
-            "COUNT": parsed.get("COUNT", "0"),
-            "IDEAL": str(ideal),
-            "RMSE": rmse_parsed.get("RMSE", "0"),
-            "SLOPE_X100": regression_parsed.get("SLOPE_X100", "0"),
-            "TREND": trend,
-            prediction_key: prediction_parsed.get(prediction_key, str(predicted_10)),
-            "ERROR_INTEGRAL": integral_parsed.get("ERROR_INTEGRAL", "0"),
-            "MAX_LOCAL_SLOPE_X100": derivative_parsed.get("MAX_LOCAL_SLOPE_X100", "0"),
-            "MAX_ACCELERATION_X100": "0",
-            "RECOMMENDATION": _historical_recommendation(
-                final_column,
-                predicted_10,
-                ideal,
-                trend,
-            ),
-            "REASON": _historical_reason(rmse, predicted_10, ideal, trend),
-            "STATUS": "OK",
-        }
-        output_text = _format_key_value_output(combined_parsed)
-
-        result.update(
-            {
-                "ok": True,
-                "status": "OK",
-                "analysis_type": "historical_combined",
-                "ideal": ideal,
-                "k": historical_k,
-                "output_text": output_text,
-                "raw_output": output_text,
-                "parsed": combined_parsed,
-                "module_results": module_results,
-            }
-        )
+        result.update({"ok": True, "status": "OK"})
         result.pop("error", None)
         result.pop("detail", None)
         return result
@@ -1103,7 +946,6 @@ def run_historical_analysis(
         }
     )
     return result
-
 
 def run_live_engine(
     reading_dict: dict,

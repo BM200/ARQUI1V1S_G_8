@@ -16,7 +16,7 @@
 
         .data
 msg_calc:
-        .ascii "CALC=VARIANZA\n"
+        .ascii "CALC=VARIANCE\n"
         .equ MSG_CALC_LEN, . - msg_calc
 msg_status_ok:
         .ascii "STATUS=OK\n"
@@ -42,6 +42,9 @@ msg_mean:
 msg_variance:
         .ascii "VARIANCE="
         .equ MSG_VARIANCE_LEN, . - msg_variance
+msg_std_dev:
+        .ascii "STD_DEV="
+        .equ MSG_STD_DEV_LEN, . - msg_std_dev
 msg_error:
         .ascii "ERROR="
         .equ MSG_ERROR_LEN, . - msg_error
@@ -145,6 +148,8 @@ media_guardada:
         .skip 8
 varianza_guardada:
         .skip 8
+std_dev_guardada:
+        .skip 8
 
         .text
         .global _start
@@ -243,6 +248,10 @@ calcular_varianza:
         udiv x26, x22, x20
         ldr x0, =varianza_guardada
         str x26, [x0]
+        mov x0, x26
+        bl raiz_entera
+        ldr x1, =std_dev_guardada
+        str x0, [x1]
         bl imprimir_ok
         mov x0, #0
         mov x8, #93
@@ -321,6 +330,14 @@ imprimir_ok:
         ldr x0, =msg_variance
         mov x1, #MSG_VARIANCE_LEN
         ldr x2, =varianza_guardada
+        ldr x2, [x2]
+        bl escribir_campo_numero
+        bl imprimir_salto
+
+        //imprime la desviacion estandar entera
+        ldr x0, =msg_std_dev
+        mov x1, #MSG_STD_DEV_LEN
+        ldr x2, =std_dev_guardada
         ldr x2, [x2]
         bl escribir_campo_numero
         bl imprimir_salto
@@ -532,6 +549,33 @@ texto_detalle_sin_datos:
 texto_detalle_limite:
         ldr x0, =det_limite
         mov x1, #DET_LIMITE_LEN
+        ret
+
+raiz_entera:
+        // calcula raiz cuadrada entera por busqueda binaria
+        cmp x0, #1
+        bls raiz_fin_pequena
+        mov x1, #1
+        lsr x2, x0, #1
+        add x2, x2, #1
+        mov x6, #0
+raiz_bucle:
+        cmp x1, x2
+        bhi raiz_fin
+        add x3, x1, x2
+        lsr x3, x3, #1
+        mul x4, x3, x3
+        cmp x4, x0
+        bhi raiz_bajar
+        mov x6, x3
+        add x1, x3, #1
+        b raiz_bucle
+raiz_bajar:
+        sub x2, x3, #1
+        b raiz_bucle
+raiz_fin:
+        mov x0, x6
+raiz_fin_pequena:
         ret
 
 imprimir_salto:

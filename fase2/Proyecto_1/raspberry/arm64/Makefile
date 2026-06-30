@@ -1,5 +1,6 @@
 AS      = aarch64-linux-gnu-as
 LD      = aarch64-linux-gnu-ld
+CC      = aarch64-linux-gnu-gcc
 QEMU    = qemu-aarch64
 
 BUILD   = build
@@ -15,9 +16,11 @@ MOD4    = modulo_4_prediccion
 MOD5    = modulo_5_tendencia
 HIST    = historical_analyzer
 LIVE    = live_engine
+RMSE1   = modulo_1_rmse
 RMSE    = modulo_rmse
 REGRESION = modulo_2_regresion
 PREDICCION = modulo_3_prediccion
+PREDICCION_FUTURA = modulo_3_prediccion_futura
 INTEGRAL = modulo_4_integral_error
 DERIVADA_LOCAL = modulo_5_derivada_local
 TEST_UTILS_WINDOW = test_utils_window
@@ -26,7 +29,7 @@ COL ?= 2
 
 .PHONY: live_engine run_live_engine rmse run_rmse regresion run_regresion prediccion run_prediccion integral_error run_integral_error derivada_local run_derivada_local test_utils_window
 
-all: $(BUILD)/$(MOD1) $(BUILD)/$(MOD2) $(BUILD)/$(MOD3) $(BUILD)/$(MOD4) $(BUILD)/$(MOD5) $(BUILD)/$(HIST) $(BUILD)/$(RMSE) $(BUILD)/$(INTEGRAL) $(BUILD)/$(DERIVADA_LOCAL) $(BUILD)/$(REGRESION) $(BUILD)/$(PREDICCION)
+all: $(BUILD)/$(MOD1) $(BUILD)/$(MOD2) $(BUILD)/$(MOD3) $(BUILD)/$(MOD4) $(BUILD)/$(MOD5) $(BUILD)/$(HIST) $(BUILD)/$(RMSE1) $(BUILD)/$(RMSE) $(BUILD)/$(INTEGRAL) $(BUILD)/$(DERIVADA_LOCAL) $(BUILD)/$(REGRESION) $(BUILD)/$(PREDICCION) $(BUILD)/$(PREDICCION_FUTURA)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -53,10 +56,13 @@ $(BUILD)/$(MOD5).o: $(MOD5).s | $(BUILD)
 	$(AS) -g $(MOD5).s -o $(BUILD)/$(MOD5).o
 
 $(BUILD)/$(HIST).o: $(HIST).s | $(BUILD)
-	$(AS) -g $(HIST).s -o $(BUILD)/$(HIST).o
+	$(CC) -c -g $(HIST).s -o $(BUILD)/$(HIST).o
 
 $(BUILD)/$(LIVE).o: $(LIVE).s | $(BUILD)
 	$(AS) -g $(LIVE).s -o $(BUILD)/$(LIVE).o
+
+$(BUILD)/$(RMSE1).o: $(RMSE1).s | $(BUILD)
+	$(AS) -g $(RMSE1).s -o $(BUILD)/$(RMSE1).o
 
 $(BUILD)/$(RMSE).o: $(RMSE).s | $(BUILD)
 	$(AS) -g $(RMSE).s -o $(BUILD)/$(RMSE).o
@@ -92,10 +98,13 @@ $(BUILD)/$(MOD5): $(BUILD)/$(MOD5).o $(UTILSO)
 	$(LD) $(BUILD)/$(MOD5).o $(UTILSO) -o $(BUILD)/$(MOD5)
 
 $(BUILD)/$(HIST): $(BUILD)/$(HIST).o
-	$(LD) $(BUILD)/$(HIST).o -o $(BUILD)/$(HIST)
+	$(CC) -static $(BUILD)/$(HIST).o -o $(BUILD)/$(HIST)
 
 $(BUILD)/$(LIVE): $(BUILD)/$(LIVE).o $(UTILSO)
 	$(LD) $(BUILD)/$(LIVE).o $(UTILSO) -o $(BUILD)/$(LIVE)
+
+$(BUILD)/$(RMSE1): $(BUILD)/$(RMSE1).o $(UTILSO)
+	$(LD) $(BUILD)/$(RMSE1).o $(UTILSO) -o $(BUILD)/$(RMSE1)
 
 $(BUILD)/$(RMSE): $(BUILD)/$(RMSE).o $(UTILSO)
 	$(LD) $(BUILD)/$(RMSE).o $(UTILSO) -o $(BUILD)/$(RMSE)
@@ -105,6 +114,9 @@ $(BUILD)/$(REGRESION): $(BUILD)/$(REGRESION).o $(UTILSO)
 
 $(BUILD)/$(PREDICCION): $(BUILD)/$(PREDICCION).o $(UTILSO)
 	$(LD) $(BUILD)/$(PREDICCION).o $(UTILSO) -o $(BUILD)/$(PREDICCION)
+
+$(BUILD)/$(PREDICCION_FUTURA): $(BUILD)/$(PREDICCION).o $(UTILSO)
+	$(LD) $(BUILD)/$(PREDICCION).o $(UTILSO) -o $(BUILD)/$(PREDICCION_FUTURA)
 
 $(BUILD)/$(INTEGRAL): $(BUILD)/$(INTEGRAL).o $(UTILSO)
 	$(LD) $(BUILD)/$(INTEGRAL).o $(UTILSO) -o $(BUILD)/$(INTEGRAL)
@@ -121,11 +133,17 @@ live_engine: $(BUILD)/$(LIVE)
 rmse: $(BUILD)/$(RMSE)
 	@echo "OK: build/modulo_rmse generado"
 
+rmse1: $(BUILD)/$(RMSE1)
+	@echo "OK: build/modulo_1_rmse generado"
+
 regresion: $(BUILD)/$(REGRESION)
 	@echo "OK: build/modulo_2_regresion generado"
 
 prediccion: $(BUILD)/$(PREDICCION)
 	@echo "OK: build/modulo_3_prediccion generado"
+
+prediccion_futura: $(BUILD)/$(PREDICCION_FUTURA)
+	@echo "OK: build/modulo_3_prediccion_futura generado"
 
 integral_error: $(BUILD)/$(INTEGRAL)
 	@echo "OK: build/modulo_4_integral_error generado"
@@ -157,17 +175,26 @@ run_live_engine: $(BUILD)/$(LIVE)
 run_rmse: $(BUILD)/$(RMSE)
 	$(QEMU) $(BUILD)/$(RMSE) lecturas.csv 1 10 TEMP 25
 
+run_rmse1: $(BUILD)/$(RMSE1)
+	$(QEMU) $(BUILD)/$(RMSE1) lecturas.csv 1 10 TEMP 25
+
 run_regresion: $(BUILD)/$(REGRESION)
 	$(QEMU) $(BUILD)/$(REGRESION) lecturas.csv 1 10 TEMP
 
 run_prediccion: $(BUILD)/$(PREDICCION)
 	$(QEMU) $(BUILD)/$(PREDICCION) lecturas.csv 1 10 TEMP 5
 
+run_prediccion_futura: $(BUILD)/$(PREDICCION_FUTURA)
+	$(QEMU) $(BUILD)/$(PREDICCION_FUTURA) lecturas.csv 1 10 TEMP 5
+
 run_integral_error: $(BUILD)/$(INTEGRAL)
 	$(QEMU) $(BUILD)/$(INTEGRAL) lecturas.csv 1 10 TEMP 25
 
 run_derivada_local: $(BUILD)/$(DERIVADA_LOCAL)
 	$(QEMU) $(BUILD)/$(DERIVADA_LOCAL) lecturas.csv 1 10 TEMP
+
+run_historical: $(BUILD)/$(HIST)
+	$(QEMU) $(BUILD)/$(HIST) lecturas.csv 1 10 TEMP 25 10
 
 save1: run1
 save2: run2
