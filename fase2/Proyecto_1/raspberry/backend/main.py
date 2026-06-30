@@ -19,6 +19,7 @@ sys.path.insert(0, DASHBOARD_DIR)
 
 
 load_dotenv(os.path.join(PROYECTO_DIR, '.env'))
+load_dotenv(os.path.join(BACKEND_DIR, ".env"))
 
 from config import (
     BROKER, PORT, KEEPALIVE,
