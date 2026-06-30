@@ -8,6 +8,7 @@ import secrets
 from functools import wraps
 from pathlib import Path
 
+import requests
 from flask import (
     Flask,
     jsonify,
@@ -48,6 +49,12 @@ FASE2_MODULES = {
     5: "modulo_5_derivada_local",
 }
 FASE2_MODULE_NAMES = {name: number for number, name in FASE2_MODULES.items()}
+
+# Puente híbrido Render/Raspberry:
+# - En Render, PORT existe y ARM64 no debe ejecutarse localmente.
+# - RASPBERRY_URL apunta al Flask de la Raspberry que sí ejecuta ARM64.
+RASPBERRY_URL = os.environ.get("RASPBERRY_URL")
+_EN_RENDER = bool(os.environ.get("PORT"))
 
 # Crear la aplicación Flask
 app = Flask(__name__)
@@ -104,6 +111,59 @@ def resolve_historical_file_path(file_path):
             return resolved
 
     return None
+
+
+def _reenviar_a_raspberry(ruta_relativa):
+    """Reenvía la petición ARM64 actual hacia la Raspberry Pi."""
+    if not RASPBERRY_URL:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_URL_NOT_SET",
+            "detail": (
+                "Este servidor corre en Render pero RASPBERRY_URL no está "
+                "configurada. Define RASPBERRY_URL apuntando al Flask de la Raspberry Pi."
+            ),
+        }), 503
+
+    destino = RASPBERRY_URL.rstrip("/") + ruta_relativa
+    headers_reenvio = {
+        key: value
+        for key, value in request.headers
+        if key.lower() in ("content-type", "accept", "x-request-id")
+    }
+
+    try:
+        respuesta_pi = requests.request(
+            method=request.method,
+            url=destino,
+            headers=headers_reenvio,
+            json=request.get_json(silent=True),
+            params=request.args,
+            timeout=60,
+        )
+        return (
+            respuesta_pi.content,
+            respuesta_pi.status_code,
+            {"Content-Type": "application/json"},
+        )
+    except requests.exceptions.ConnectionError as exc:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_UNREACHABLE",
+            "detail": f"No se pudo conectar a la Raspberry Pi ({destino}): {exc}",
+        }), 502
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "ok": False,
+            "error": "RASPBERRY_TIMEOUT",
+            "detail": f"La Raspberry Pi no respondió en 60 s ({destino})",
+        }), 502
+    except requests.exceptions.RequestException as exc:
+        return jsonify({
+            "ok": False,
+            "error": "BRIDGE_ERROR",
+            "detail": str(exc),
+        }), 502
 
 
 # RUTAS PRINCIPALES
@@ -338,6 +398,9 @@ def columna_modulo_valida(column):
 @login_required
 def run_arm64_fase1():
     """Ejecuta un módulo ARM64 de Fase 1 y guarda su resultado."""
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/fase1/run")
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
@@ -462,6 +525,9 @@ def run_arm64_fase1():
 @login_required
 def run_arm64_fase2():
     """Ejecuta un módulo avanzado de Fase 2."""
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/fase2/run")
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
@@ -574,6 +640,9 @@ def run_arm64_fase2():
 @login_required
 def run_arm64_historical():
     """Ejecuta el analizador histórico ARM64 y guarda su resultado."""
+    if _EN_RENDER:
+        return _reenviar_a_raspberry("/api/arm64/historical/run")
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):

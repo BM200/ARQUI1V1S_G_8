@@ -3,5 +3,6 @@ Flask-SocketIO>=5.3,<6
 paho-mqtt>=1.6,<3
 pymongo[srv]>=4.6,<5
 python-dotenv>=1.0,<2
+requests>=2.32,<3
 pyserial>=3.5,<4
 certifi
