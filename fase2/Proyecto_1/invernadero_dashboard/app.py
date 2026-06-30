@@ -56,6 +56,15 @@ FASE2_MODULE_NAMES = {name: number for number, name in FASE2_MODULES.items()}
 RASPBERRY_URL = os.environ.get("RASPBERRY_URL")
 _EN_RENDER = bool(os.environ.get("PORT"))
 
+# Secreto compartido para autenticar las peticiones servidor-a-servidor
+# (Render -> Raspberry) sin depender de cookies de sesión.
+BRIDGE_SECRET = os.getenv("BRIDGE_SECRET", "").strip()
+if not _EN_RENDER and not BRIDGE_SECRET:
+    print(
+        "[BRIDGE] ADVERTENCIA: BRIDGE_SECRET no está configurada en la Raspberry Pi. "
+        "Las rutas ARM64 solo aceptarán sesiones de usuario, no peticiones reenviadas desde Render."
+    )
+
 # Crear la aplicación Flask
 app = Flask(__name__)
 CORS(app)
@@ -89,6 +98,25 @@ def login_required(view_function):
             return redirect(url_for("login"))
 
         return view_function(*args, **kwargs)
+
+    return wrapped_view
+
+
+def bridge_or_login_required(view_function):
+    """Permite el acceso si hay sesión de usuario válida O si la petición
+    trae el header X-Bridge-Secret correcto (usado por Render para
+    reenviar peticiones ARM64 a la Raspberry Pi sin cookies de sesión).
+    """
+    @wraps(view_function)
+    def wrapped_view(*args, **kwargs):
+        if session.get("authenticated"):
+            return view_function(*args, **kwargs)
+
+        header_secret = request.headers.get("X-Bridge-Secret", "")
+        if BRIDGE_SECRET and hmac.compare_digest(header_secret, BRIDGE_SECRET):
+            return view_function(*args, **kwargs)
+
+        return redirect(url_for("login"))
 
     return wrapped_view
 
@@ -132,6 +160,9 @@ def _reenviar_a_raspberry(ruta_relativa):
         for key, value in request.headers
         if key.lower() in ("content-type", "accept", "x-request-id")
     }
+
+    if BRIDGE_SECRET:
+        headers_reenvio["X-Bridge-Secret"] = BRIDGE_SECRET
 
     try:
         respuesta_pi = requests.request(
@@ -396,7 +427,7 @@ def columna_modulo_valida(column):
 
 
 @app.route("/api/arm64/fase1/run", methods=["POST"])
-@login_required
+@bridge_or_login_required
 def run_arm64_fase1():
     """Ejecuta un módulo ARM64 de Fase 1 y guarda su resultado."""
     if _EN_RENDER:
@@ -523,7 +554,7 @@ def run_arm64_fase1():
 
 
 @app.route("/api/arm64/fase2/run", methods=["POST"])
-@login_required
+@bridge_or_login_required
 def run_arm64_fase2():
     """Ejecuta un módulo avanzado de Fase 2."""
     if _EN_RENDER:
@@ -638,7 +669,7 @@ def run_arm64_fase2():
 
 
 @app.route("/api/arm64/historical/run", methods=["POST"])
-@login_required
+@bridge_or_login_required
 def run_arm64_historical():
     """Ejecuta el analizador histórico ARM64 y guarda su resultado."""
     if _EN_RENDER:
@@ -829,19 +860,16 @@ def on_disconnect():
 
 # INICIO DEL SERVIDOR
 if __name__ == "__main__":
-    print("Iniciando Dashboard Invernadero Inteligente...")
-    print("─" * 45)
-
-    # Iniciar conexión MQTT en segundo plano
-    mqtt_handler.iniciar_mqtt()
-
-    # Iniciar servidor web
-    print("Servidor corriendo en: http://localhost:5000")
-    print("─" * 45)
-    socketio.run(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        debug=True,
-        allow_unsafe_werkzeug=True,
-    )
+    if _EN_RENDER:
+        # En Render levanta el puerto asignado dinámicamente por la nube
+        port = int(os.getenv("PORT", 5000))
+        print("Iniciando Dashboard Invernadero Inteligente (Render)...")
+        print("─" * 45)
+        socketio.run(app, host="0.0.0.0", port=port)
+    else:
+        # En la Raspberry Pi se muda al puerto seguro 5050 para no chocar
+        print("Iniciando Servidor Puente Híbrido en la Raspberry Pi...")
+        print("Escuchando localmente en: http://127.0.0.1:5050")
+        print("─" * 45)
+        mqtt_handler.iniciar_mqtt()
+        socketio.run(app, host="0.0.0.0", port=5050, allow_unsafe_werkzeug=True)
